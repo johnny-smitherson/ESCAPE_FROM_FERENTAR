@@ -1,5 +1,5 @@
 body {
-    background-color: #111216;
+    background-color: #75d7ad;
 }
 
 #main {
@@ -37,4 +37,30 @@ body {
 
 #header {
     max-width: 1200px;
+}
+
+
+#container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+#receiver {
+    background: deepskyblue;
+    height: 30vh;
+    width: 80vw;
+    color: white;
+    padding: 20px;
+    margin: 20px;
+    text-align: center;
+}
+
+#log {
+    background: lightgray;
+    padding: 20px;
+    margin: 20px;
+    overflow-y: scroll;
+    align-items: start;
+    text-align: left;
 }
