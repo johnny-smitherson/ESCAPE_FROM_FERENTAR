@@ -174,6 +174,8 @@ fn MapsDisplay (
         ("red", (0, 0, 18)),
         ("green", (1, 1, 18)),
         ("blue", (-1, -1, 18)),
+        ("purple", (1, -1, 18)),
+        ("purple", (1, -1, 18)),
     ];
 
     rsx! {
@@ -197,21 +199,16 @@ fn MapsTile (
     dimensions: ReadOnlySignal<(f64, f64)>,
     sq_x: i32, sq_y: i32, sq_z: i32, sq_color: String,
 ) -> Element {
-    const TILE_SIZE_PX : f64= 256.0;
-
     let zoom = *zoom.read()  - sq_z as f64;
     let zoom = f64::exp2(zoom);
-
-    let tile_size = zoom * TILE_SIZE_PX;
-
-
+    let tile_pos_abs = (sq_x as f64 * zoom + pos.read().0, sq_y as f64 * zoom + pos.read().1);
     rsx! {
         div { style: "
-        width: {tile_size}px;
-        height: {tile_size}px; 
+        width: {zoom*100.0}vmin;
+        height: {zoom*100.0}vmin; 
         position: absolute; 
-        top: calc({pos.read().1*100.0}vmin - {0.5*tile_size}px + {tile_size * sq_y as f64}px); 
-        left: calc({pos.read().0*100.0}vmin -  {0.5*tile_size}px  + {tile_size * sq_x as f64}px);
+        top: calc({tile_pos_abs.1*100.0}vmin - 50vh); 
+        left: calc({tile_pos_abs.0*100.0}vmin - 50vw);
         color: {sq_color};
         background-color: {sq_color};
     " }
