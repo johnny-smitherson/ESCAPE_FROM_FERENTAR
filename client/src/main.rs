@@ -11,7 +11,6 @@
 //! dx serve --platform web --features web --example hash_fragment_state --features=ciborium,base64 -- --no-default-features
 //! ```
 #[allow(non_snake_case)]
-
 use std::{fmt::Display, str::FromStr};
 
 use base64::engine::general_purpose::URL_SAFE;
@@ -19,11 +18,8 @@ use base64::Engine;
 
 use dioxus::prelude::*;
 use dioxus_elements::geometry::{euclid::Size2D, WheelDelta};
-use dioxus_logger::tracing::{info, warn, error};
+use dioxus_logger::tracing::{error, info, warn};
 use serde::{Deserialize, Serialize};
-
-
-
 
 fn main() {
     dioxus_logger::init(dioxus_logger::tracing::Level::INFO).expect("failed to init logger");
@@ -105,7 +101,9 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     // if url is invalid, they will not match
     if !_init_state.is_init {
         warn!("redirecting from invalid url_hash into default...");
-        navigator().replace(Route::Home { url_hash: INIT_STATE });
+        navigator().replace(Route::Home {
+            url_hash: INIT_STATE,
+        });
     }
 
     let mut state = use_signal(&*url_hash);
@@ -121,9 +119,10 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     });
 
     // Change the url hash when the state changes -- on a debounce
-    let mut debounce_write_url = dioxus_sdk::utils::timing::use_debounce(std::time::Duration::from_millis(100), move |_| {
+    let mut debounce_write_url =
+        dioxus_sdk::utils::timing::use_debounce(std::time::Duration::from_millis(100), move |_| {
             navigator().replace(Route::Home { url_hash: state() });
-    });
+        });
     use_memo(move || {
         if *state.read() != *url_hash.peek() {
             debounce_write_url.action(());
@@ -155,34 +154,77 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
             state.write().pos = *pos.read();
         }
     });
-    
+
     rsx! {
-        h3 {
-            "zoom = {zoom:?}"
-        }
-        h3 {
-            "pos = {pos:?}"
-        }
-        div {
-            style: "
-                width: {256.0}px;
-                height: {256.0}px; 
-                position: absolute; 
-                top: {pos.peek().1*100.0}vmin; 
-                left: {pos.peek().0*100.0}vmin;
-                color: red;
-                background-color: red;
-            "
-        }
-        MapsController {zoom_sig: zoom, pos_sig: pos, dimensions}
+
+        MapsController {  zoom, pos, dimensions }
+        MapsDisplay {  zoom, pos, dimensions  }
     }
 }
 
 
+#[component]
+fn MapsDisplay (
+    zoom: ReadOnlySignal<f64>,
+    pos: ReadOnlySignal<(f64, f64)>,
+    dimensions: ReadOnlySignal<(f64, f64)>,
+) -> Element {
+
+    let ze_squarez = vec![
+        ("red", (0, 0, 18)),
+        ("green", (1, 1, 18)),
+        ("blue", (-1, -1, 18)),
+    ];
+
+    rsx! {
+        h3 { "zoom = {zoom:?}" }
+        h3 { "pos = {pos:?}" }
+        for (sq_color, (sq_x, sq_y, sq_z)) in ze_squarez {
+
+            MapsTile {
+                zoom, pos, dimensions,
+                sq_x, sq_y, sq_z, sq_color: sq_color.to_string()
+            }
+
+        }
+    }
+}
 
 #[component]
-fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>, mut dimensions: Signal<(f64, f64)>) -> Element {
-    
+fn MapsTile (
+    zoom: ReadOnlySignal<f64>,
+    pos: ReadOnlySignal<(f64, f64)>,
+    dimensions: ReadOnlySignal<(f64, f64)>,
+    sq_x: i32, sq_y: i32, sq_z: i32, sq_color: String,
+) -> Element {
+    const TILE_SIZE_PX : f64= 256.0;
+
+    let zoom = *zoom.read()  - sq_z as f64;
+    let zoom = f64::exp2(zoom);
+
+    let tile_size = zoom * TILE_SIZE_PX;
+
+
+    rsx! {
+        div { style: "
+        width: {tile_size}px;
+        height: {tile_size}px; 
+        position: absolute; 
+        top: calc({pos.read().1*100.0}vmin - {0.5*tile_size}px + {tile_size * sq_y as f64}px); 
+        left: calc({pos.read().0*100.0}vmin -  {0.5*tile_size}px  + {tile_size * sq_x as f64}px);
+        color: {sq_color};
+        background-color: {sq_color};
+    " }
+    }
+}
+
+
+#[component]
+fn MapsController(
+    mut zoom: Signal<f64>,
+    mut pos: Signal<(f64, f64)>,
+    mut dimensions: Signal<(f64, f64)>,
+) -> Element {
     #[derive(Copy, Clone, Debug)]
     struct PointerMoveEvent {
         coord_x: f64,
@@ -201,16 +243,23 @@ fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>, mu
     let mut last_pointer_pos: Signal<Option<(f64, f64)>> = use_signal(|| None);
     let mut on_movement = move |event: PointerMoveEvent| {
         let last = *last_pointer_pos.peek();
-        let current = if event.is_pressed {Some((event.coord_x, event.coord_y))} else {None};
+        let current = if event.is_pressed {
+            Some((event.coord_x, event.coord_y))
+        } else {
+            None
+        };
         let quad_edge = *dimensions.peek();
-        let quad_edge=  f64::min(quad_edge.0, quad_edge.1);
+        let quad_edge = f64::min(quad_edge.0, quad_edge.1);
 
         if let (Some(current), Some(last)) = (current, last) {
-            let diff = ((current.0 - last.0) / quad_edge, (current.1 - last.1)/ quad_edge);
+            let diff = (
+                (current.0 - last.0) / quad_edge,
+                (current.1 - last.1) / quad_edge,
+            );
             if diff.0.abs() + diff.1.abs() > 0.00001 {
                 // warn!("MOVEMENT DIFF = {diff:?}");
-                let old_pos = *pos_sig.peek();
-                *pos_sig.write() = (old_pos.0 + diff.0, old_pos.1 + diff.1);
+                let old_pos = *pos.peek();
+                *pos.write() = (old_pos.0 + diff.0, old_pos.1 + diff.1);
             }
         }
 
@@ -219,16 +268,24 @@ fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>, mu
         }
     };
 
-    let mut last_pinch_dist: Signal<Option<f64>> = use_signal(||None);
+    let mut last_pinch_dist: Signal<Option<f64>> = use_signal(|| None);
     let mut on_zoom = move |event: MouseZoomEvent| {
         let last = *last_pinch_dist.peek();
-        let current = if event.is_pinch {Some(event.pinch_dist)} else {None};
-        let quad_edge = *dimensions.peek();
-        let quad_edge=  f64::min(quad_edge.0, quad_edge.1);
+        let current = if event.is_pinch {
+            Some(event.pinch_dist)
+        } else {
+            None
+        };
+        // let quad_edge = *dimensions.peek();
+        // let quad_edge = f64::min(quad_edge.0, quad_edge.1);
 
-        let diff_wheel = if event.lines_diff.abs() > 0.1 || event.pixels_diff.abs() > 0.1 {
-            event.lines_diff.signum() / 5.0 + event.pixels_diff / quad_edge / 3.0
-        }  else {
+        let diff_wheel = if event.lines_diff.abs() > 0.1 {
+            (event.lines_diff.signum()) / 5.0 
+        } else {
+            0.0
+        } + if event.pixels_diff.abs() > 0.1 {
+            event.pixels_diff.signum() / 5.0
+        } else {
             0.0
         };
 
@@ -241,8 +298,9 @@ fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>, mu
         let diff = -diff_wheel + diff_pinch;
         if diff.abs() > 0.00001 {
             // warn!("ZOOM = {diff}");
-            let _old_zoom_sig = *zoom_sig.peek();
-            *zoom_sig.write() = _old_zoom_sig + diff;
+            let _old_zoom_sig = *zoom.peek();
+            *zoom.write() = _old_zoom_sig + diff;
+            info!("{:#?}", zoom.peek());
         }
 
         if last != current {
@@ -250,27 +308,31 @@ fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>, mu
         }
     };
 
-    let on_mouse = move |event: Event<MouseData>| {   
-        event.prevent_default();   
+    let on_mouse = move |event: Event<MouseData>| {
+        event.prevent_default();
         let data = event.data();
 
         let ev = PointerMoveEvent {
-            coord_x : data.page_coordinates().x,
-            coord_y : data.page_coordinates().y,
-            is_pressed : data.held_buttons().contains(dioxus_elements::input_data::MouseButton::Primary),
+            coord_x: data.page_coordinates().x,
+            coord_y: data.page_coordinates().y,
+            is_pressed: data
+                .held_buttons()
+                .contains(dioxus_elements::input_data::MouseButton::Primary),
         };
 
         on_movement(ev);
     };
 
-    let on_touch = move |event: Event<TouchData> | {
+    let on_touch = move |event: Event<TouchData>| {
         event.prevent_default();
         let data = event.data();
         let _changed = data.touches_changed();
         let _current = data.touches();
         let _target = data.target_touches();
 
-        let new_touch = if let Some(n) = _target.get(0) {n} else {
+        let new_touch = if let Some(n) = _target.get(0) {
+            n
+        } else {
             if let Some(n) = _changed.get(0) {
                 n
             } else {
@@ -291,13 +353,18 @@ fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>, mu
             let p2 = _current[1].page_coordinates();
             let touch_diff = (p1 - p2).length();
             MouseZoomEvent {
-                pixels_diff: 0., lines_diff: 0., pinch_dist: touch_diff, is_pinch: true,
-                
+                pixels_diff: 0.,
+                lines_diff: 0.,
+                pinch_dist: touch_diff,
+                is_pinch: true,
             }
         } else {
             MouseZoomEvent {
-                pixels_diff: 0., lines_diff: 0., pinch_dist: 0., is_pinch: false,
-            }            
+                pixels_diff: 0.,
+                lines_diff: 0.,
+                pinch_dist: 0.,
+                is_pinch: false,
+            }
         };
         on_zoom(ev2);
     };
@@ -307,41 +374,58 @@ fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>, mu
         let data = event.data();
         let diff = data.delta();
 
-        let lines_diff= if let WheelDelta::Lines(x) = diff {x.y} else {0.0} + if let WheelDelta::Pages(x) = diff {x.y/30.0} else {0.0};
-        let pixels_diff = if let WheelDelta::Pixels(x) = diff {x.y} else {0.0};
+        let lines_diff = if let WheelDelta::Lines(x) = diff {
+            x.y
+        } else {
+            0.0
+        } + if let WheelDelta::Pages(x) = diff {
+            x.y / 30.0
+        } else {
+            0.0
+        };
+        let pixels_diff = if let WheelDelta::Pixels(x) = diff {
+            x.y
+        } else {
+            0.0
+        };
 
         let ev = MouseZoomEvent {
-            lines_diff, pixels_diff, pinch_dist: 0.0, is_pinch: false,
+            lines_diff,
+            pixels_diff,
+            pinch_dist: 0.0,
+            is_pinch: false,
         };
+        info!("{ev:#?}");
         on_zoom(ev);
     };
 
     rsx! {
-            div { id: "receiver", tabindex: 0,
-                onmousemove: on_mouse,
-                onmousedown: on_mouse,
-                onmouseup: on_mouse,
-                onwheel: on_wheel,
+        div {
+            id: "receiver",
+            tabindex: 0,
+            onmousemove: on_mouse,
+            onmousedown: on_mouse,
+            onmouseup: on_mouse,
+            onwheel: on_wheel,
 
-                ontouchcancel: on_touch,
-                ontouchend: on_touch,
-                ontouchmove: on_touch,
-                ontouchstart: on_touch,
+            ontouchcancel: on_touch,
+            ontouchend: on_touch,
+            ontouchmove: on_touch,
+            ontouchstart: on_touch,
 
-                // get initial mounted component size
-                onmounted: move |event|  async move {
-                    if let Ok(client_rect) = event.get_client_rect().await {
-                        let size = client_rect.size;
-                            dimensions.set((size.width, size.height));
-                    }
-                },
-                // update component size
-                onresize: move |event| {
-                    let size = event.data().get_content_box_size().unwrap();
-                    dimensions.set((size.width, size.height))
+            // get initial mounted component size
+            onmounted: move |event| async move {
+                if let Ok(client_rect) = event.get_client_rect().await {
+                    let size = client_rect.size;
+                    dimensions.set((size.width, size.height));
                 }
-                
-            }
+            },
+            // update component size
+            onresize: move |event| {
+                let size = event.data().get_content_box_size().unwrap();
+                dimensions.set((size.width, size.height))
+            },
         }
+    }
     // }
 }
