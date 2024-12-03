@@ -111,6 +111,7 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     let mut state = use_signal(&*url_hash);
     let mut zoom = use_signal(|| state.peek().zoom);
     let mut pos = use_signal(|| state.peek().pos);
+    let dimensions: Signal<(f64, f64)> = use_signal(|| (0.0, 0.0));
 
     // Change the state signal when the url hash changes
     use_memo(move || {
@@ -157,23 +158,30 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     
     rsx! {
         h3 {
-            "zom = {zoom:?}"
+            "zoom = {zoom:?}"
         }
         h3 {
             "pos = {pos:?}"
         }
         div {
-            style: "width: 256px; height: 256px; position: absolute; top: {pos.peek().1*100.0}vmin; left: {pos.peek().0*100.0}vmin; color: red; background-color: red;"
+            style: "
+                width: {256.0}px;
+                height: {256.0}px; 
+                position: absolute; 
+                top: {pos.peek().1*100.0}vmin; 
+                left: {pos.peek().0*100.0}vmin;
+                color: red;
+                background-color: red;
+            "
         }
-        MapsController {zoom_sig: zoom, pos_sig: pos}
+        MapsController {zoom_sig: zoom, pos_sig: pos, dimensions}
     }
 }
 
 
 
 #[component]
-fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>) -> Element {
-    let mut dimensions: Signal<(f64, f64)> = use_signal(|| (0.0, 0.0));
+fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>, mut dimensions: Signal<(f64, f64)>) -> Element {
     
     #[derive(Copy, Clone, Debug)]
     struct PointerMoveEvent {
@@ -309,37 +317,16 @@ fn MapsController(mut zoom_sig: Signal<f64>, mut pos_sig: Signal<(f64, f64)>) ->
     };
 
     rsx! {
-        // document::Link { rel: "stylesheet", href: STYLE }
-        // div { id: "container",
-            // focusing is necessary to catch keyboard events
             div { id: "receiver", tabindex: 0,
                 onmousemove: on_mouse,
                 onmousedown: on_mouse,
                 onmouseup: on_mouse,
-                // onclick: move |event| { event.prevent_default(); log_event("onclick", event.data());},
-                // ondoubleclick: move |event| { event.prevent_default(); log_event("ondoubleclick", event.data());},
                 onwheel: on_wheel,
-
-                // onkeydown: move |event| { event.prevent_default(); log_event("onkeydown", event.data());},
-                // onkeyup: move |event| { event.prevent_default(); log_event("onkeyup", event.data());},
-                // onkeypress: move |event| { event.prevent_default(); log_event("onkeypress", event.data());},
-
-                // onfocusin: move |event| { event.prevent_default(); log_event("onfocusin", event.data());},
-                // onfocusout: move |event| { event.prevent_default(); log_event("onfocusout", event.data());},
-
-                // ondrag: move |event| { event.prevent_default(); log_event("ondrag", event.data());},
-                // ondragend: move |event| { event.prevent_default(); log_event("ondragend", event.data());},
-                // ondragenter: move |event| { event.prevent_default(); log_event("ondragenter", event.data());},
-                // ondragexit: move |event| { event.prevent_default(); log_event("ondragexit", event.data());},
-                // ondragleave: move |event| { event.prevent_default(); log_event("ondragleave", event.data());},
-                // ondragover: move |event| { event.prevent_default(); log_event("ondragover", event.data());},
-                // ondragstart: move |event| { event.prevent_default(); log_event("ondragstart", event.data());},
 
                 ontouchcancel: on_touch,
                 ontouchend: on_touch,
                 ontouchmove: on_touch,
                 ontouchstart: on_touch,
-
 
                 // get initial mounted component size
                 onmounted: move |event|  async move {
