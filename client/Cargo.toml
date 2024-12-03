@@ -7,7 +7,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.6.0-alpha.5", features = ["router","fullstack",] }
+base64 = "0.22.1"
+ciborium = "0.2.2"
+dioxus = { version = "0.6.0-alpha.5", features = ["router"] }
+dioxus-logger = { version = "0.5.1" }
+dioxus-html = { version = "0.6.0-alpha.5", features = ["serialize"]}
+
+
+serde = "1.0.215"
+dioxus-sdk = {git = "https://github.com/DioxusLabs/sdk", branch = "feat/dioxus-0.6", features = ["timing"]}
 
 [features]
 web = ["dioxus/web"]

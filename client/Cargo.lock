@@ -504,7 +504,13 @@ dependencies = [
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "ciborium",
  "dioxus",
+ "dioxus-html",
+ "dioxus-logger",
+ "dioxus-sdk",
+ "serde",
 ]
 
 [[package]]
@@ -891,7 +897,6 @@ dependencies = [
  "dioxus-ssr",
  "dioxus-web",
  "manganis",
- "serde",
 ]
 
 [[package]]
@@ -1235,6 +1240,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dioxus-logger"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81fe09dc9773dc1f1bb0d38529203d6555d08f67aadca5cf955ac3d1a9e69880"
+dependencies = [
+ "console_error_panic_hook",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-wasm",
+]
+
+[[package]]
 name = "dioxus-mobile"
 version = "0.6.0-alpha.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1285,6 +1302,22 @@ dependencies = [
  "proc-macro2-diagnostics",
  "quote",
  "syn 2.0.90",
+]
+
+[[package]]
+name = "dioxus-sdk"
+version = "0.6.0"
+source = "git+https://github.com/DioxusLabs/sdk?branch=feat/dioxus-0.6#03fcc96794ac65efd0224566865f016b9b06890d"
+dependencies = [
+ "cfg-if",
+ "dioxus",
+ "futures",
+ "gloo-timers",
+ "js-sys",
+ "tokio",
+ "tracing",
+ "uuid",
+ "warnings",
 ]
 
 [[package]]
@@ -1909,8 +1942,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4567c8db10ae91089c99af84c68c38da3ec2f087c3f82960bcdbf3656b6f4d7"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2034,6 +2069,18 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -4101,6 +4148,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sharded-slab"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4440,6 +4496,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "thread_local"
+version = "1.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
+dependencies = [
+ "cfg-if",
+ "once_cell",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4683,6 +4749,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-subscriber"
+version = "0.3.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8189decb5ac0fa7bc8b96b7cb9b2701d60d48805aca84a238004d665fcc4008"
+dependencies = [
+ "sharded-slab",
+ "thread_local",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-wasm"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4575c663a174420fa2d78f4108ff68f65bf2fbb7dd89f33749b6e826b3626e07"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "tray-icon"
 version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4826,6 +4914,10 @@ name = "uuid"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
+dependencies = [
+ "getrandom 0.2.15",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "vcpkg"

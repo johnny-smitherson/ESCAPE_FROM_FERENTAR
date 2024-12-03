@@ -1,6 +1,28 @@
 body {
     background-color: #75d7ad;
+    overflow-y:hidden;
+    overflow-x:hidden;
 }
+
+
+#receiver {
+    background: transparent;
+    color: transparent;
+    z-index: 6666;
+    height: 100vh;
+    width: 100vw;
+    top: 0px;
+    left: 0px;
+    position: absolute;
+    padding: 0px;
+    margin: 0px;
+    text-align: center;
+    overflow-y:hidden;
+    overflow-x:hidden;
+}
+
+
+
 
 #main {
     margin: 0;
@@ -46,15 +68,6 @@ body {
     align-items: center;
 }
 
-#receiver {
-    background: deepskyblue;
-    height: 30vh;
-    width: 80vw;
-    color: white;
-    padding: 20px;
-    margin: 20px;
-    text-align: center;
-}
 
 #log {
     background: lightgray;
@@ -63,4 +76,5 @@ body {
     overflow-y: scroll;
     align-items: start;
     text-align: left;
+    font-size: 1vh;
 }
