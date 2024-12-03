@@ -21,7 +21,7 @@ use dioxus::prelude::*;
 use dioxus_elements::geometry::{euclid::Size2D, WheelDelta};
 use dioxus_logger::tracing::{info, warn, error};
 use serde::{Deserialize, Serialize};
-use svg_attributes::view_target;
+
 
 
 
