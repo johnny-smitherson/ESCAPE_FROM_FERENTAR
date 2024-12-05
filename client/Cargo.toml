@@ -9,9 +9,9 @@ edition = "2021"
 [dependencies]
 base64 = "0.22.1"
 ciborium = "0.2.2"
-dioxus = { version = "0.6.0-alpha.5", features = ["router"] }
+dioxus = { version = "0.6.0-rc.0", features = ["router"] }
 dioxus-logger = { version = "0.5.1" }
-dioxus-html = { version = "0.6.0-alpha.5", features = ["serialize"]}
+dioxus-html = { version = "0.6.0-rc.0", features = ["serialize"]}
 
 
 serde = "1.0.215"

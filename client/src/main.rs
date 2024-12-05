@@ -49,9 +49,11 @@ struct MapState {
     pos: (f64, f64),
 }
 
+const REF_Z: f64 = 18.0;
+
 const INIT_STATE: MapState = MapState {
     is_init: true,
-    zoom: 18.0,
+    zoom: REF_Z,
     pos: (0.0, 0.0),
 };
 
@@ -171,11 +173,12 @@ fn MapsDisplay (
 ) -> Element {
 
     let ze_squarez = vec![
+        ("pink", (0, 0, 17)),
         ("red", (0, 0, 18)),
         ("green", (1, 1, 18)),
         ("blue", (-1, -1, 18)),
         ("purple", (1, -1, 18)),
-        ("purple", (1, -1, 18)),
+        ("brown", (0, 0, 19)),
     ];
 
     rsx! {
@@ -189,6 +192,34 @@ fn MapsDisplay (
             }
 
         }
+        
+        div {
+            style: "
+                background-color: #FFF;
+                mix-blend-mode: difference;
+                width: 10vmin;
+                height: 0.5vmin;
+                margin-left: -5vmin;
+                margin-top: -0.25vmin;
+                position: absolute;
+                left: 50vw;
+                top: 50vh;
+            "
+        }
+        div {
+            style: "
+                background-color: #FFF;
+                mix-blend-mode: difference;
+                width: 0.5vmin;
+                height: 10vmin;
+                margin-left: -0.25vmin;
+                margin-top: -5vmin;
+                position: absolute;
+                left: 50vw;
+                top: 50vh;
+            "
+        }
+
     }
 }
 
@@ -199,19 +230,32 @@ fn MapsTile (
     dimensions: ReadOnlySignal<(f64, f64)>,
     sq_x: i32, sq_y: i32, sq_z: i32, sq_color: String,
 ) -> Element {
-    let zoom = *zoom.read()  - sq_z as f64;
-    let zoom = f64::exp2(zoom);
-    let tile_pos_abs = (sq_x as f64 * zoom + pos.read().0, sq_y as f64 * zoom + pos.read().1);
+    let tile_size_abs = f64::exp2(REF_Z - sq_z as f64);
+    let tile_pos_abs = (sq_x as f64 * tile_size_abs , sq_y as f64 * tile_size_abs );
+    let tile_relative = (
+        tile_pos_abs.0 - pos.read().0,
+        tile_pos_abs.1 - pos.read().1,
+    );
+    let camera_zoom = f64::exp2(REF_Z - *zoom.read());
+    let tile_camera = (
+        tile_relative.0 /  camera_zoom,
+        tile_relative.1 /  camera_zoom,
+    );
+    let tile_size = tile_size_abs / camera_zoom;
     rsx! {
-        div { style: "
-        width: {zoom*100.0}vmin;
-        height: {zoom*100.0}vmin; 
-        position: absolute; 
-        top: calc({tile_pos_abs.1*100.0}vmin - 50vh); 
-        left: calc({tile_pos_abs.0*100.0}vmin - 50vw);
-        color: {sq_color};
-        background-color: {sq_color};
-    " }
+        div { 
+            style: "
+                width: {tile_size*50.0}vmin;
+                height: {tile_size*50.0}vmin; 
+                position: absolute; 
+                left: calc({tile_camera.0*50.0}vmin + 50vw);
+                bottom: calc({tile_camera.1*50.0}vmin + 50vh); 
+                color: black;
+                font-size: {tile_size*9.0}vmin;
+                background-color: {sq_color};
+            ", 
+            "x={sq_x}", br{}, "y={sq_y}", br{}, "z={sq_z}"
+        }
     }
 }
 
@@ -246,7 +290,7 @@ fn MapsController(
             None
         };
         let quad_edge = *dimensions.peek();
-        let quad_edge = f64::min(quad_edge.0, quad_edge.1);
+        let quad_edge = f64::min(quad_edge.0, quad_edge.1)/2.0;
 
         if let (Some(current), Some(last)) = (current, last) {
             let diff = (
@@ -255,8 +299,12 @@ fn MapsController(
             );
             if diff.0.abs() + diff.1.abs() > 0.00001 {
                 // warn!("MOVEMENT DIFF = {diff:?}");
-                let old_pos = *pos.peek();
-                *pos.write() = (old_pos.0 + diff.0, old_pos.1 + diff.1);
+                let old_pos = *pos.read();
+                let exp = f64::exp2(REF_Z - *zoom.read());
+                *pos.write() = (
+                    old_pos.0 - diff.0 * exp, 
+                    old_pos.1 + diff.1 * exp
+                )
             }
         }
 
@@ -297,7 +345,6 @@ fn MapsController(
             // warn!("ZOOM = {diff}");
             let _old_zoom_sig = *zoom.peek();
             *zoom.write() = _old_zoom_sig + diff;
-            info!("{:#?}", zoom.peek());
         }
 
         if last != current {
@@ -392,7 +439,6 @@ fn MapsController(
             pinch_dist: 0.0,
             is_pinch: false,
         };
-        info!("{ev:#?}");
         on_zoom(ev);
     };
 
