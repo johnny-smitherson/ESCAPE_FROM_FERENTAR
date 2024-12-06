@@ -10,16 +10,11 @@
 //! ```sh
 //! dx serve --platform web --features web --example hash_fragment_state --features=ciborium,base64 -- --no-default-features
 //! ```
+use client::url_state::{MapState, INIT_STATE};
 #[allow(non_snake_case)]
-use std::{fmt::Display, str::FromStr};
-
-use base64::engine::general_purpose::URL_SAFE;
-use base64::Engine;
-
+use client::{comp::MapsDisplay, input::MapsController};
 use dioxus::prelude::*;
-use dioxus_elements::geometry::{euclid::Size2D, WheelDelta};
 use dioxus_logger::tracing::{error, info, warn};
-use serde::{Deserialize, Serialize};
 
 fn main() {
     dioxus_logger::init(dioxus_logger::tracing::Level::INFO).expect("failed to init logger");
@@ -38,63 +33,49 @@ enum Route {
     Home {
         url_hash: MapState,
     },
+    #[route("/hello")]
+    Hello{}
 }
 
-// You can use a custom type with the hash segment as long as it implements Display, FromStr and Default
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-struct MapState {
-    /// if false, overwrite with the default value with "true" set.
-    is_init: bool,
-    zoom: f64,
-    pos: (f64, f64),
-}
 
-const REF_Z: f64 = 18.0;
 
-const INIT_STATE: MapState = MapState {
-    is_init: true,
-    zoom: REF_Z,
-    pos: (0.0, 0.0),
-};
-
-// Display the state in a way that can be parsed by FromStr
-impl Display for MapState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut serialized = Vec::new();
-        if ciborium::into_writer(self, &mut serialized).is_ok() {
-            write!(f, "{}", URL_SAFE.encode(serialized))?;
+#[component]
+fn Hello() -> Element {
+    let mut response = use_signal(String::new);
+    use futures_util::StreamExt;
+    rsx! {
+        button {
+            onclick: move |_| async move {
+                response.write().clear();
+                if let Ok(stream) = test_stream().await {
+                    response.write().push_str("Stream started\n");
+                    let mut stream = stream.into_inner();
+                    while let Some(Ok(text)) = stream.next().await {
+                        response.write().push_str(&text);
+                    }
+                }
+            },
+            "Start stream"
         }
-        Ok(())
+        "{response}"
     }
 }
-
-enum StateParseError {
-    DecodeError(base64::DecodeError),
-    CiboriumError(ciborium::de::Error<std::io::Error>),
-}
-
-impl std::fmt::Display for StateParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DecodeError(err) => write!(f, "Failed to decode base64: {}", err),
-            Self::CiboriumError(err) => write!(f, "Failed to deserialize: {}", err),
+use crate::server_fn::codec::StreamingText;
+use crate::server_fn::codec::TextStream;
+#[server(output = StreamingText)]
+pub async fn test_stream() -> Result<TextStream, ServerFnError> {
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            let _ = tx.unbounded_send(Ok("Hello, world!".to_string()));
         }
-    }
+    });
+
+    Ok(TextStream::new(rx))
 }
 
-// Parse the state from a string that was created by Display
-impl FromStr for MapState {
-    type Err = StateParseError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let decompressed = URL_SAFE
-            .decode(s.as_bytes())
-            .map_err(StateParseError::DecodeError)?;
-        let parsed = ciborium::from_reader(std::io::Cursor::new(decompressed))
-            .map_err(StateParseError::CiboriumError)?;
-        Ok(parsed)
-    }
-}
 
 #[component]
 fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
@@ -158,317 +139,7 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     });
 
     rsx! {
-
         MapsController {  zoom, pos, dimensions }
         MapsDisplay {  zoom, pos, dimensions  }
     }
-}
-
-
-#[component]
-fn MapsDisplay (
-    zoom: ReadOnlySignal<f64>,
-    pos: ReadOnlySignal<(f64, f64)>,
-    dimensions: ReadOnlySignal<(f64, f64)>,
-) -> Element {
-
-    let ze_squarez = vec![
-        ("pink", (0, 0, 17)),
-        ("red", (0, 0, 18)),
-        ("green", (1, 1, 18)),
-        ("blue", (-1, -1, 18)),
-        ("purple", (1, -1, 18)),
-        ("brown", (0, 0, 19)),
-    ];
-
-    rsx! {
-        h3 { "zoom = {zoom:?}" }
-        h3 { "pos = {pos:?}" }
-        for (sq_color, (sq_x, sq_y, sq_z)) in ze_squarez {
-
-            MapsTile {
-                zoom, pos, dimensions,
-                sq_x, sq_y, sq_z, sq_color: sq_color.to_string()
-            }
-
-        }
-        
-        div {
-            style: "
-                background-color: #FFF;
-                mix-blend-mode: difference;
-                width: 10vmin;
-                height: 0.5vmin;
-                margin-left: -5vmin;
-                margin-top: -0.25vmin;
-                position: absolute;
-                left: 50vw;
-                top: 50vh;
-            "
-        }
-        div {
-            style: "
-                background-color: #FFF;
-                mix-blend-mode: difference;
-                width: 0.5vmin;
-                height: 10vmin;
-                margin-left: -0.25vmin;
-                margin-top: -5vmin;
-                position: absolute;
-                left: 50vw;
-                top: 50vh;
-            "
-        }
-
-    }
-}
-
-#[component]
-fn MapsTile (
-    zoom: ReadOnlySignal<f64>,
-    pos: ReadOnlySignal<(f64, f64)>,
-    dimensions: ReadOnlySignal<(f64, f64)>,
-    sq_x: i32, sq_y: i32, sq_z: i32, sq_color: String,
-) -> Element {
-    let tile_size_abs = f64::exp2(REF_Z - sq_z as f64);
-    let tile_pos_abs = (sq_x as f64 * tile_size_abs , sq_y as f64 * tile_size_abs );
-    let tile_relative = (
-        tile_pos_abs.0 - pos.read().0,
-        tile_pos_abs.1 - pos.read().1,
-    );
-    let camera_zoom = f64::exp2(REF_Z - *zoom.read());
-    let tile_camera = (
-        tile_relative.0 /  camera_zoom,
-        tile_relative.1 /  camera_zoom,
-    );
-    let tile_size = tile_size_abs / camera_zoom;
-    rsx! {
-        div { 
-            style: "
-                width: {tile_size*50.0}vmin;
-                height: {tile_size*50.0}vmin; 
-                position: absolute; 
-                left: calc({tile_camera.0*50.0}vmin + 50vw);
-                bottom: calc({tile_camera.1*50.0}vmin + 50vh); 
-                color: black;
-                font-size: {tile_size*9.0}vmin;
-                background-color: {sq_color};
-            ", 
-            "x={sq_x}", br{}, "y={sq_y}", br{}, "z={sq_z}"
-        }
-    }
-}
-
-
-#[component]
-fn MapsController(
-    mut zoom: Signal<f64>,
-    mut pos: Signal<(f64, f64)>,
-    mut dimensions: Signal<(f64, f64)>,
-) -> Element {
-    #[derive(Copy, Clone, Debug)]
-    struct PointerMoveEvent {
-        coord_x: f64,
-        coord_y: f64,
-        is_pressed: bool,
-    }
-
-    #[derive(Copy, Clone, Debug)]
-    struct MouseZoomEvent {
-        lines_diff: f64,
-        pixels_diff: f64,
-        pinch_dist: f64,
-        is_pinch: bool,
-    }
-
-    let mut last_pointer_pos: Signal<Option<(f64, f64)>> = use_signal(|| None);
-    let mut on_movement = move |event: PointerMoveEvent| {
-        let last = *last_pointer_pos.peek();
-        let current = if event.is_pressed {
-            Some((event.coord_x, event.coord_y))
-        } else {
-            None
-        };
-        let quad_edge = *dimensions.peek();
-        let quad_edge = f64::min(quad_edge.0, quad_edge.1)/2.0;
-
-        if let (Some(current), Some(last)) = (current, last) {
-            let diff = (
-                (current.0 - last.0) / quad_edge,
-                (current.1 - last.1) / quad_edge,
-            );
-            if diff.0.abs() + diff.1.abs() > 0.00001 {
-                // warn!("MOVEMENT DIFF = {diff:?}");
-                let old_pos = *pos.read();
-                let exp = f64::exp2(REF_Z - *zoom.read());
-                *pos.write() = (
-                    old_pos.0 - diff.0 * exp, 
-                    old_pos.1 + diff.1 * exp
-                )
-            }
-        }
-
-        if last != current {
-            *last_pointer_pos.write() = current;
-        }
-    };
-
-    let mut last_pinch_dist: Signal<Option<f64>> = use_signal(|| None);
-    let mut on_zoom = move |event: MouseZoomEvent| {
-        let last = *last_pinch_dist.peek();
-        let current = if event.is_pinch {
-            Some(event.pinch_dist)
-        } else {
-            None
-        };
-        // let quad_edge = *dimensions.peek();
-        // let quad_edge = f64::min(quad_edge.0, quad_edge.1);
-
-        let diff_wheel = if event.lines_diff.abs() > 0.1 {
-            (event.lines_diff.signum()) / 5.0 
-        } else {
-            0.0
-        } + if event.pixels_diff.abs() > 0.1 {
-            event.pixels_diff.signum() / 5.0
-        } else {
-            0.0
-        };
-
-        let diff_pinch = if let (Some(current), Some(last)) = (current, last) {
-            (current / last).log2()
-        } else {
-            0.0
-        };
-
-        let diff = -diff_wheel + diff_pinch;
-        if diff.abs() > 0.00001 {
-            // warn!("ZOOM = {diff}");
-            let _old_zoom_sig = *zoom.peek();
-            *zoom.write() = _old_zoom_sig + diff;
-        }
-
-        if last != current {
-            *last_pinch_dist.write() = current;
-        }
-    };
-
-    let on_mouse = move |event: Event<MouseData>| {
-        event.prevent_default();
-        let data = event.data();
-
-        let ev = PointerMoveEvent {
-            coord_x: data.page_coordinates().x,
-            coord_y: data.page_coordinates().y,
-            is_pressed: data
-                .held_buttons()
-                .contains(dioxus_elements::input_data::MouseButton::Primary),
-        };
-
-        on_movement(ev);
-    };
-
-    let on_touch = move |event: Event<TouchData>| {
-        event.prevent_default();
-        let data = event.data();
-        let _changed = data.touches_changed();
-        let _current = data.touches();
-        let _target = data.target_touches();
-
-        let new_touch = if let Some(n) = _target.get(0) {
-            n
-        } else {
-            if let Some(n) = _changed.get(0) {
-                n
-            } else {
-                return;
-            }
-        };
-
-        let ev = PointerMoveEvent {
-            coord_x: new_touch.page_coordinates().x,
-            coord_y: new_touch.page_coordinates().y,
-            is_pressed: data.touches().len() == 1,
-        };
-
-        on_movement(ev);
-
-        let ev2 = if _current.len() >= 2 {
-            let p1 = _current[0].page_coordinates();
-            let p2 = _current[1].page_coordinates();
-            let touch_diff = (p1 - p2).length();
-            MouseZoomEvent {
-                pixels_diff: 0.,
-                lines_diff: 0.,
-                pinch_dist: touch_diff,
-                is_pinch: true,
-            }
-        } else {
-            MouseZoomEvent {
-                pixels_diff: 0.,
-                lines_diff: 0.,
-                pinch_dist: 0.,
-                is_pinch: false,
-            }
-        };
-        on_zoom(ev2);
-    };
-
-    let on_wheel = move |event: Event<WheelData>| {
-        event.prevent_default();
-        let data = event.data();
-        let diff = data.delta();
-
-        let lines_diff = if let WheelDelta::Lines(x) = diff {
-            x.y
-        } else {
-            0.0
-        } + if let WheelDelta::Pages(x) = diff {
-            x.y / 30.0
-        } else {
-            0.0
-        };
-        let pixels_diff = if let WheelDelta::Pixels(x) = diff {
-            x.y
-        } else {
-            0.0
-        };
-
-        let ev = MouseZoomEvent {
-            lines_diff,
-            pixels_diff,
-            pinch_dist: 0.0,
-            is_pinch: false,
-        };
-        on_zoom(ev);
-    };
-
-    rsx! {
-        div {
-            id: "receiver",
-            tabindex: 0,
-            onmousemove: on_mouse,
-            onmousedown: on_mouse,
-            onmouseup: on_mouse,
-            onwheel: on_wheel,
-
-            ontouchcancel: on_touch,
-            ontouchend: on_touch,
-            ontouchmove: on_touch,
-            ontouchstart: on_touch,
-
-            // get initial mounted component size
-            onmounted: move |event| async move {
-                if let Ok(client_rect) = event.get_client_rect().await {
-                    let size = client_rect.size;
-                    dimensions.set((size.width, size.height));
-                }
-            },
-            // update component size
-            onresize: move |event| {
-                let size = event.data().get_content_box_size().unwrap();
-                dimensions.set((size.width, size.height))
-            },
-        }
-    }
-    // }
 }
