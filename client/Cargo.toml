@@ -15,11 +15,16 @@ dioxus-html = { version = "0.6.0-rc.0", features = ["serialize"]}
 
 
 serde = "1.0.215"
-dioxus-sdk = {git = "https://github.com/DioxusLabs/sdk", branch = "feat/dioxus-0.6", features = ["timing"]}
+dioxus-sdk = {git = "https://github.com/DioxusLabs/sdk", branch = "feat/dioxus-0.6", features = ["timing", "storage"]}
 reqwest = "0.12.9"
 futures-util = "0.3.31"
 tokio = "1.42.0"
 futures = "0.3.31"
+anyhow = "1.0.94"
+web-time = "1.1.0"
+async-std = "1.13.0"
+async-channel = "2.3.1"
+# async-broadcast = "0.7.1"
 
 [features]
 default = ["web"]
