@@ -66,6 +66,11 @@ pub fn MapsDisplay (
     let mut square_storage = use_signal(HashMap::<(i32,i32,i32),String>::new);
     // info!("SQUARE STORAGE: {}", square_storage.peek().len());
 
+    // vvvvvvvvvvvv
+    let cancel = use_signal(|| tokio::sync::broadcast::channel::<()>(1));
+    let cancel_ack = use_signal(|| async_channel::bounded::<()>(1));
+    // ^^^^^^^^^^^^
+
     let mut fut = use_future(move || async move {
         let _total_count = ze_squarez.len();
         let request_list = ze_squarez.read().iter().filter(|k| !square_storage.peek().contains_key(k)).cloned().collect::<Vec<_>>();
@@ -76,47 +81,63 @@ pub fn MapsDisplay (
         info!("future started for {_new_conut} imgs new / {_total_count} total");
         match  get_tile_list(request_list.clone()).await {
             Ok(x) => {
-                // set empty string in dict
-                for tile in request_list.iter().cloned() {
-                    if !square_storage.peek().contains_key(&tile) {
-                        square_storage.write().insert(tile, "".to_string());
-                    }
-                }
                 let mut stream = x.into_inner();
                 use futures_util::stream::StreamExt;
                 let mut i = 0;
                 let mut buf = "".to_string();
-                while let Some(Ok(chunk)) = stream.next().await {
-                    buf.push_str(&chunk);
-                    let mut lines = vec![];
-                    while let Some(newline_pos) = buf.find("\n") {
-                        lines.push(buf[..newline_pos].to_string());
-                        buf = buf[(newline_pos+1)..].to_string();
-                    }
-                    for line in lines {
-                        let fields :Vec<_> = line.splitn(5, "|").collect();
-                        // info!("FIELDS: {:?}", fields);
-                        let is_ok = fields[0] == "ok";
-                        let sq_z = fields[1].parse().unwrap_or(0);
-                        let sq_x = fields[2].parse().unwrap_or(0);
-                        let sq_y = fields[3].parse().unwrap_or(0);
-                        let body = fields[4];
-                        if is_ok {
-                            // only write if we've got a `""`, otherwise it's been cancelled
-                            if square_storage.peek().get(&(sq_z, sq_x, sq_y)) == Some(&"".to_string()) {
-                                square_storage.write().insert((sq_z, sq_x, sq_y), body.to_string());
-                                async_std::task::sleep(std::time::Duration::from_millis(1)).await;
+
+                // vvvvvvvvvvvv
+                let mut cancel_rx = cancel.peek().0.subscribe();
+                let cancel_ack_tx = cancel_ack.peek().0.clone();
+                let cancel_future = cancel_rx.recv();
+                futures::pin_mut!(cancel_future);
+                // ^^^^^^^^^^^^
+
+                loop {
+                    cancel_future = match futures::future::select(stream.next(), cancel_future).await {
+                        futures::future::Either::Left((stream_value, _next_fut)) => {
+                            if let Some(Ok(chunk)) = stream_value {
+                                buf.push_str(&chunk);
+                                let mut lines = vec![];
+                                while let Some(newline_pos) = buf.find("\n") {
+                                    lines.push(buf[..newline_pos].to_string());
+                                    buf = buf[(newline_pos+1)..].to_string();
+                                }
+                                for line in lines {
+                                    let fields :Vec<_> = line.splitn(5, "|").collect();
+                                    // info!("FIELDS: {:?}", fields);
+                                    let is_ok = fields[0] == "ok";
+                                    let sq_z = fields[1].parse().unwrap_or(0);
+                                    let sq_x = fields[2].parse().unwrap_or(0);
+                                    let sq_y = fields[3].parse().unwrap_or(0);
+                                    let body = fields[4];
+                                    if is_ok {
+                                        square_storage.write().insert((sq_z, sq_x, sq_y), body.to_string());
+                                        // async_std::task::sleep(std::time::Duration::from_millis(1)).await;
+                                    } else {
+                                        warn!("stream err:  img z={sq_z}/x={sq_x}/y={sq_y}: {body}");
+                                    }
+                                    i += 1;
+                                    if i == request_list.len() {
+                                        info!("client finished all {} tiles.", i);
+                                        break;
+                                    }
+                                }
+
+
+                                _next_fut
                             } else {
-                                warn!("cancelled but got response: {:?}", (sq_z, sq_x, sq_y));
+                                info!("stream finished.");
+                                return;
                             }
-                            // break;
-                        } else {
-                            warn!("stream err:  img z={sq_z}/x={sq_x}/y={sq_y}: {body}");
                         }
-                        i += 1;
-                        if i == request_list.len() {
-                            info!("client finished all {} tiles.", i);
-                            break;
+                        futures::future::Either::Right((_stop_value, _)) => {
+                            if let Err(e) = cancel_ack_tx.send(()).await {
+                                error!("failed to send cancel ack message: {:?}", e);
+                            }
+                            info!("cancel channel got message: cancelling stream.");
+                            // async_std::task::sleep(std::time::Duration::from_millis(1000)).await;
+                            return;
                         }
                     }
                 }
@@ -127,11 +148,21 @@ pub fn MapsDisplay (
         }
     });
 
-    use_effect(move || {
+    let _r = use_resource(move || async move {
         let z2 = ze_squarez.read().len();
         if z2 > 0 {
-            fut.pause();
+            if !fut.finished() {
+                if let Err(e) = cancel.peek().0.clone().send(()) {
+                    warn!("cancel failed!!! {:?}", e);
+                }
+                info!("cancel sent, waiting for resp...");
+                if let Err(e) = cancel_ack.peek().1.recv().await {
+                    warn!("cancel_ack read failed: {:?}!", e);
+                }
+                info!("cancel ack received.");
+            }
             fut.cancel();
+
             // clear unused keys
             let zl = std::collections::HashSet::<(i32,i32,i32)>::from_iter(ze_squarez.peek().iter().cloned());
             let to_delete = square_storage.peek().keys().filter(|k| !zl.contains(k)).cloned().collect::<Vec<_>>();
@@ -142,7 +173,8 @@ pub fn MapsDisplay (
                 }
             }
 
-            fut.restart(); 
+            fut.restart();
+            info!("future restarted.");
         }
     });
 

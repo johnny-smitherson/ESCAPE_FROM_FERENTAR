@@ -156,7 +156,8 @@ pub async fn test_stream() -> Result<TextStream, ServerFnError> {
 #[component]
 fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     // The initial state of the state comes from the url hash
-    let mut _init_state = (&*url_hash)();
+    let mut _init_state = url_hash.read().clone();
+    info!("main: {:?}", _init_state);
     // if url is invalid, they will not match
     if !_init_state.is_init {
         warn!("redirecting from invalid url_hash into default...");
@@ -183,7 +184,7 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
         dioxus_sdk::utils::timing::use_debounce(std::time::Duration::from_millis(100), move |_| {
             navigator().replace(Route::Home { url_hash: state() });
         });
-        use_effect(move || {
+    use_effect(move || {
         if *state.read() != *url_hash.peek() {
             debounce_write_url.action(());
         }
