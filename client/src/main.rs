@@ -10,6 +10,7 @@
 //! ```sh
 //! dx serve --platform web --features web --example hash_fragment_state --features=ciborium,base64 -- --no-default-features
 //! ```
+use client::index_db::init_db_globals;
 use client::url_state::{MapState, INIT_STATE};
 #[allow(non_snake_case)]
 use client::{comp::MapsDisplay, input::MapsController};
@@ -20,6 +21,9 @@ fn main() {
     dioxus_logger::init(dioxus_logger::tracing::Level::INFO).expect("failed to init logger");
     info!("dioxus launch...");
     dioxus::launch(|| {
+        info!("init db globals...");
+        init_db_globals();
+        info!("init db globals: done.");
         rsx! {
             Router::<Route> {}
         }
@@ -157,7 +161,10 @@ pub async fn test_stream() -> Result<TextStream, ServerFnError> {
 fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     // The initial state of the state comes from the url hash
     let mut _init_state = url_hash.read().clone();
-    info!("main: {:?}", _init_state);
+    let mut state = use_signal(|| _init_state.clone());
+    let mut zoom = use_signal(|| state.peek().zoom);
+    let mut pos = use_signal(|| state.peek().pos);
+    let dimensions: Signal<(f64, f64)> = use_signal(|| (0.0, 0.0));
     // if url is invalid, they will not match
     if !_init_state.is_init {
         warn!("redirecting from invalid url_hash into default...");
@@ -165,12 +172,16 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
         navigator().replace(Route::Home {
             url_hash: INIT_STATE,
         });
+        // state.set(INIT_STATE);
     }
 
-    let mut state = use_signal(|| _init_state.clone());
-    let mut zoom = use_signal(|| state.peek().zoom);
-    let mut pos = use_signal(|| state.peek().pos);
-    let dimensions: Signal<(f64, f64)> = use_signal(|| (0.0, 0.0));
+    state.read();
+    zoom.read();
+    pos.read();
+    dimensions.read();
+
+    
+    // info!("\nmain: {:#?}\n", _init_state);
 
     // Change the state signal when the url hash changes
     use_effect(move || {
