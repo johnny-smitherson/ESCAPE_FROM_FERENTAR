@@ -1,12 +1,10 @@
 #[allow(non_snake_case)]
-
 use dioxus::prelude::*;
 use dioxus_elements::geometry::{euclid::Size2D, WheelDelta};
 use dioxus_logger::tracing::{error, info, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::_const::{MAX_Z, MIN_Z};
-
 
 #[component]
 pub fn MapsController(
@@ -38,7 +36,7 @@ pub fn MapsController(
             None
         };
         let quad_edge = *dimensions.peek();
-        let quad_edge = f64::min(quad_edge.0, quad_edge.1)/2.0;
+        let quad_edge = f64::min(quad_edge.0, quad_edge.1) / 2.0;
 
         if let (Some(current), Some(last)) = (current, last) {
             let diff = (
@@ -49,10 +47,7 @@ pub fn MapsController(
                 // warn!("MOVEMENT DIFF = {diff:?}");
                 let old_pos = *pos.peek();
                 let exp = f64::exp2(crate::_const::REF_Z - *zoom.peek());
-                *pos.write() = (
-                    old_pos.0 - diff.0 * exp, 
-                    old_pos.1 - diff.1 * exp
-                )
+                *pos.write() = (old_pos.0 - diff.0 * exp, old_pos.1 - diff.1 * exp)
             }
         }
 
@@ -73,7 +68,7 @@ pub fn MapsController(
         // let quad_edge = f64::min(quad_edge.0, quad_edge.1);
 
         let diff_wheel = if event.lines_diff.abs() > 0.1 {
-            (event.lines_diff.signum()) / 5.0 
+            (event.lines_diff.signum()) / 5.0
         } else {
             0.0
         } + if event.pixels_diff.abs() > 0.1 {
@@ -92,7 +87,7 @@ pub fn MapsController(
         if diff.abs() > 0.00001 {
             // warn!("ZOOM = {diff}");
             let _old_zoom_sig = *zoom.peek();
-            *zoom.write() =( _old_zoom_sig + diff).clamp(MIN_Z as f64, MAX_Z as f64);
+            *zoom.write() = (_old_zoom_sig + diff).clamp(MIN_Z as f64, MAX_Z as f64);
         }
 
         if last != current {

@@ -45,7 +45,10 @@ enum Route {
 #[component]
 fn Storage() -> Element {
     let mut count_session = dioxus_sdk::storage::use_singleton_persistent(|| 0);
-    let mut count_local = dioxus_sdk::storage::use_synced_storage:: <dioxus_sdk::storage::LocalStorage,i32>("synced".to_string(), || 0);
+    let mut count_local = dioxus_sdk::storage::use_synced_storage::<
+        dioxus_sdk::storage::LocalStorage,
+        i32,
+    >("synced".to_string(), || 0);
 
     rsx!(
         div {
@@ -54,7 +57,7 @@ fn Storage() -> Element {
                     *count_session.write() += 1;
                 },
                 "Click me!"
-            },
+            }
             "I persist for the current session. Clicked {count_session} times"
         }
         div {
@@ -63,13 +66,11 @@ fn Storage() -> Element {
                     *count_local.write() += 1;
                 },
                 "Click me!"
-            },
+            }
             "I persist across all sessions. Clicked {count_local} times"
         }
     )
 }
-
-
 
 #[component]
 fn Hello() -> Element {
@@ -89,28 +90,30 @@ fn Hello() -> Element {
                 let cancel_future = cancel_rx.recv();
                 futures::pin_mut!(cancel_future);
                 loop {
-                    cancel_future = match futures::future::select(stream.next(), cancel_future).await {
-                        futures::future::Either::Left((stream_value, _next_fut)) => {
-                            if let Some(Ok(text)) = stream_value {
-                                response.write().push_str(&text);
-                                _next_fut
-                            } else {
-                                info!("stream finished.");
+                    cancel_future =
+                        match futures::future::select(stream.next(), cancel_future).await {
+                            futures::future::Either::Left((stream_value, _next_fut)) => {
+                                if let Some(Ok(text)) = stream_value {
+                                    response.write().push_str(&text);
+                                    _next_fut
+                                } else {
+                                    info!("stream finished.");
+                                    return;
+                                }
+                            }
+                            futures::future::Either::Right((_stop_value, _)) => {
+                                if let Err(e) = cancel_ack_tx.send(()).await {
+                                    error!("failed to send cancel ack message: {:?}", e);
+                                }
+                                info!("cancel channel got message: cancelling stream.");
+                                // async_std::task::sleep(std::time::Duration::from_millis(1000)).await;
                                 return;
                             }
                         }
-                        futures::future::Either::Right((_stop_value, _)) => {
-                            if let Err(e) = cancel_ack_tx.send(()).await {
-                                error!("failed to send cancel ack message: {:?}", e);
-                            }
-                            info!("cancel channel got message: cancelling stream.");
-                            // async_std::task::sleep(std::time::Duration::from_millis(1000)).await;
-                            return;
-                        }
-                    }
                 }
             }
-    }});
+        }
+    });
 
     rsx! {
         button {
@@ -130,9 +133,7 @@ fn Hello() -> Element {
             },
             "Cancel & Restart stream"
         }
-        pre {
-            "{response}"
-        }
+        pre { "{response}" }
     }
 }
 use crate::server_fn::codec::StreamingText;
@@ -154,8 +155,6 @@ pub async fn test_stream() -> Result<TextStream, ServerFnError> {
 
     Ok(TextStream::new(rx))
 }
-
-
 
 #[component]
 fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
@@ -180,7 +179,6 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     pos.read();
     dimensions.read();
 
-    
     // info!("\nmain: {:#?}\n", _init_state);
 
     // Change the state signal when the url hash changes
@@ -228,7 +226,7 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     });
 
     rsx! {
-        MapsController {  zoom, pos, dimensions }
-        MapsDisplay {  zoom, pos, dimensions  }
+        MapsController { zoom, pos, dimensions }
+        MapsDisplay { zoom, pos, dimensions }
     }
 }

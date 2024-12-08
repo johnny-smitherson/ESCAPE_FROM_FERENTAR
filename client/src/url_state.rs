@@ -7,7 +7,6 @@ use base64::Engine;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
-
 // You can use a custom type with the hash segment as long as it implements Display, FromStr and Default
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct MapState {
@@ -16,7 +15,6 @@ pub struct MapState {
     pub zoom: f64,
     pub pos: (f64, f64),
 }
-
 
 pub const INIT_STATE: MapState = MapState {
     is_init: true,
