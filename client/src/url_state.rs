@@ -4,7 +4,6 @@ use std::{fmt::Display, str::FromStr};
 use base64::engine::general_purpose::URL_SAFE;
 use base64::Engine;
 
-use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 // You can use a custom type with the hash segment as long as it implements Display, FromStr and Default

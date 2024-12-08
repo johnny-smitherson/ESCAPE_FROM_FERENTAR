@@ -20,9 +20,8 @@ pub fn init_db_globals() {
         d
     });
     use_context_provider::<DbReesource>(|| db_res);
-    // ensure calling component is reset on db opened
-    let db_res = use_context::<DbReesource>();
-    let _ = db_res.read();
+    // let db_res = use_context::<DbReesource>();
+    // let _ = db_res.read();
 }
 
 pub async fn read_image(key: (i32, i32, i32)) -> anyhow::Result<Option<ImageCacheRow>> {

@@ -1,8 +1,6 @@
 #[allow(non_snake_case)]
 use dioxus::prelude::*;
-use dioxus_elements::geometry::{euclid::Size2D, WheelDelta};
-use dioxus_logger::tracing::{error, info, warn};
-use serde::{Deserialize, Serialize};
+use dioxus_elements::geometry::WheelDelta;
 
 use crate::_const::{MAX_Z, MIN_Z};
 
