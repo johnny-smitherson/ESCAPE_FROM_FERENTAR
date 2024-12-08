@@ -35,8 +35,8 @@ fn get_tile_positions_one_level(
 
     let mut ze_squarez = vec![];
     let tile_diff_exp = f64::exp(f64::fract(f64::log2(min_dim_tiles) + zoom));
-    let tile_count_x = (dimensions.0 / vmin_px / tile_diff_exp * min_dim_tiles + 1.1).ceil() as i32;
-    let tile_count_y = (dimensions.1 / vmin_px / tile_diff_exp * min_dim_tiles + 1.1).ceil() as i32;
+    let tile_count_x = (dimensions.0 / vmin_px / tile_diff_exp * min_dim_tiles + 1.1).ceil() as i32 + 1;
+    let tile_count_y = (dimensions.1 / vmin_px / tile_diff_exp * min_dim_tiles + 1.1).ceil() as i32 + 1;
     for i in (x0 - tile_count_x)..=(x0 + tile_count_x) {
         for j in (y0 - tile_count_y)..=(y0 + tile_count_y) {
             ze_squarez.push((
@@ -47,8 +47,6 @@ fn get_tile_positions_one_level(
         }
     }
 
-    ze_squarez.sort();
-    ze_squarez.dedup();
     ze_squarez
 }
 
@@ -57,22 +55,28 @@ fn get_tile_positions(
     pos: (f64, f64),
     zoom: f64,
     dimensions: (f64, f64),
-) -> (Vec<(i32, i32, i32)>, Vec<(i32, i32, i32)>) {
-    const IMG_AVG_PX: f64 = 512.0;
-    let mut squares_bigger = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX * 2.0);
-    let mut squares_smaller = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX / 2.0);
-    let mut squares_exact = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX);
-
-    let mut squares_all = vec![];
-    squares_all.append(&mut squares_bigger);
-    squares_all.append(&mut squares_exact);
-    squares_all.sort();
-    squares_all.dedup();
-    let squares_on_screen = squares_all.clone();
-    squares_all.append(&mut squares_smaller);
-    squares_all.sort();
-    squares_all.dedup();
-    (squares_all, squares_on_screen)
+) -> Vec<(i32, i32, i32)> {
+    if zoom < MIN_Z as f64 - 0.0001 {
+        return vec![];
+    }
+    const IMG_MAX_PX: f64 = 256.0+128.0;
+    let mut current_px = IMG_MAX_PX;
+    let mut all_sq = vec![];
+    for _ in 0..5 {
+        let mut new_sq = get_tile_positions_one_level(pos, zoom, dimensions, current_px);
+        if new_sq.is_empty() {
+            break;
+        }
+        let current_z = new_sq[0].0;
+        all_sq.append(&mut new_sq);
+        if current_z == MIN_Z {
+            break;
+        }
+        current_px *= 2.0;
+    }
+    all_sq.sort();
+    all_sq.dedup();
+    all_sq
 }
 
 #[component]
@@ -81,13 +85,7 @@ pub fn MapsDisplay(
     pos: ReadOnlySignal<(f64, f64)>,
     dimensions: ReadOnlySignal<(f64, f64)>,
 ) -> Element {
-    let _square_computed = use_memo(move || {
-        let sq = get_tile_positions(*pos.read(), *zoom.read(), *dimensions.read());
-        // info!("computed {:?} squares", sq.len());
-        sq
-    });
-    let squares_in_view = use_memo(move || _square_computed.read().0.clone());
-    let squares_on_display = use_memo(move || _square_computed.read().1.clone());
+    let squares_in_view = use_memo(move || get_tile_positions(*pos.read(), *zoom.read(), *dimensions.read()));
     let map_tile_is_loaded = use_signal(HashMap::<(i32, i32, i32), bool>::new);
     let map_tile_data = use_signal(HashMap::<(i32, i32, i32), String>::new);
     // info!("SQUARE STORAGE: {}", square_storage.peek().len());
@@ -100,7 +98,7 @@ pub fn MapsDisplay(
             id: "main_display_list",
             style: "list-style-type:none;margin:0;padding:0;",
 
-            for (sq_z , sq_x , sq_y) in squares_on_display.read().iter().cloned() {
+            for (sq_z , sq_x , sq_y) in squares_in_view.read().iter().cloned() {
                 li { key: "tile_li_{sq_z}_{sq_x}_{sq_y}",
                     MapsTile {
                         zoom,
@@ -124,10 +122,24 @@ pub fn MapsDisplay(
 }
 
 fn _use_handle_data_loading(
-    squares_in_view: ReadOnlySignal<Vec<(i32, i32, i32)>>,
+    squares_to_load: ReadOnlySignal<Vec<(i32, i32, i32)>>,
     mut map_tile_is_loaded: Signal<HashMap<(i32, i32, i32), bool>>,
     mut map_tile_data: Signal<HashMap<(i32, i32, i32), String>>,
 ) {
+    // debounce the squares changing, so we debounce the whole load process
+    let mut squares_in_view = use_signal(Vec::<(i32, i32, i32)>::new);
+    let mut debounce_update_squares =
+        dioxus_sdk::utils::timing::use_debounce(std::time::Duration::from_millis(100), move |_| {
+            squares_in_view.set(squares_to_load.peek().clone());
+        });
+    use_effect(move || {
+        let _ = squares_to_load.read();
+        debounce_update_squares.action(());
+    });
+    let squares_in_view = use_memo(move || {
+        squares_in_view.read().clone()
+    });
+
     // vvvvvvvvvvvv
     let cancel = use_signal(|| tokio::sync::broadcast::channel::<()>(1));
     let cancel_ack = use_signal(|| async_channel::bounded::<()>(1));
@@ -167,10 +179,12 @@ fn _use_handle_data_loading(
             }};
         }
         // ^^^^^^^^^^^^
-        let do_stuff = async move {
-            info!("init future...");
-
-            // clear unused keys
+        let mut clear_unused_keys = move || {
+            let total_item_count = squares_in_view.peek().len();
+            if total_item_count < 500 {
+                return;
+            }
+            let mut _count = 0;
             let zl = std::collections::HashSet::<(i32, i32, i32)>::from_iter(
                 squares_in_view.peek().iter().cloned(),
             );
@@ -185,16 +199,24 @@ fn _use_handle_data_loading(
                 for d in to_delete {
                     map_tile_is_loaded.write().remove(&d);
                     map_tile_data.write().remove(&d);
+                    _count += 1;
                 }
             }
+            if _count > 0 {
+                info!("cleared {_count} unused keys / {total_item_count} total");
+            }
+        };
+        let filter_loaded_keys = move |list: &Vec<_>| {
+            list
+            .iter()
+            .filter(|k| !map_tile_is_loaded.peek().contains_key(k))
+            .cloned()
+            .collect::<Vec<_>>()
+        };
+        let do_stuff = async move {
 
             let _total_count = squares_in_view.len();
-            let request_list = squares_in_view
-                .read()
-                .iter()
-                .filter(|k| !map_tile_is_loaded.peek().contains_key(k))
-                .cloned()
-                .collect::<Vec<_>>();
+            let request_list = filter_loaded_keys(squares_in_view.read().as_ref());
             let _new_conut = request_list.len();
             if _new_conut == 0 {
                 return;
@@ -203,35 +225,26 @@ fn _use_handle_data_loading(
             // try read from index storage
             info!("reading {} images from local storage...", _new_conut);
             let mut _read_from_local = 0;
-            use futures::stream::FuturesUnordered;
-            let mut fut_unordered = FuturesUnordered::from_iter(request_list.iter().cloned().map(
-                move |k| async move {
-                    let cache_line = match read_image(k).await {
-                        Ok(cache_line) => cache_line,
-                        Err(e) => {
-                            error!("failed to read cached img from indexed db: {:#?}", e);
-                            return None;
-                        }
-                    };
-
-                    if let Some(img) = cache_line {
-                        return Some((k, img.img_b64));
+            // use futures::stream::FuturesUnordered;
+            // pop is slow
+            for k in request_list.iter().cloned() {
+                let cache_line = match await_cancel!( read_image(k) ) {
+                    Ok(cache_line) => cache_line,
+                    Err(e) => {
+                        error!("failed to read cached img from indexed db: {:#?}", e);
+                        return;
                     }
-                    return None;
-                },
-            ));
-            use futures_util::StreamExt;
-            while let Some(Some((cached_k, cached_img))) = await_cancel!(fut_unordered.next()) {
-                map_tile_data.write().insert(cached_k, cached_img);
-                map_tile_is_loaded.write().insert(cached_k, true);
-                _read_from_local += 1;
+                };
+
+                if let Some(img) = cache_line {
+                    map_tile_data.write().insert(k, img.img_b64);
+                    map_tile_is_loaded.write().insert(k, true);
+                    _read_from_local += 1;
+                }
             }
-            let request_list = request_list
-                .iter()
-                .filter(|k| !map_tile_is_loaded.peek().contains_key(k))
-                .cloned()
-                .collect::<Vec<_>>();
             info!("found {} images in local storage.", _read_from_local);
+
+            let request_list = filter_loaded_keys(&request_list);
             let _new_conut = request_list.len();
             if _new_conut == 0 {
                 return;
@@ -297,7 +310,8 @@ fn _use_handle_data_loading(
             }
         };
 
-        do_stuff.await
+        await_cancel!(do_stuff);
+        clear_unused_keys();
     });
 
     let _r = use_resource(move || async move {
@@ -339,6 +353,7 @@ fn MapsTile(
     let camera_zoom = f64::exp2(REF_Z - *zoom.read());
     let tile_camera = (tile_relative.0 / camera_zoom, tile_relative.1 / camera_zoom);
     let tile_size = tile_size_abs / camera_zoom;
+    let z_index = sq_z - 32;
 
     let is_loaded = use_memo(move || {
         if let Some(x) = map_tile_is_loaded.read().get(&(sq_z, sq_x, sq_y)) {
@@ -370,6 +385,7 @@ fn MapsTile(
                     left: calc({tile_camera.0*50.0}vmin + 50vw);
                     top: calc({tile_camera.1*50.0}vmin + 50vh); 
                     background-color: transparent;
+                    z-index: {z_index};
                 ",
                 src,
                         // src: "https://mt1.google.com/vt/lyrs=y&x={sq_x}&y={sq_y}&z={sq_z}"
@@ -544,7 +560,10 @@ async fn get_server_tile_img_once(coord: (i32, i32, i32)) -> Result<String, Serv
 #[component]
 pub fn MapsCrosshair() -> Element {
     rsx! {
-        div { style: "
+        div {
+
+            div { style: "
+                z-index: 0;
                 background-color: #FFF;
                 mix-blend-mode: difference;
                 width: 10vmin;
@@ -556,6 +575,7 @@ pub fn MapsCrosshair() -> Element {
                 top: 50vh;
             " }
         div { style: "
+                z-index: 0;
                 background-color: #FFF;
                 mix-blend-mode: difference;
                 width: 0.5vmin;
@@ -566,5 +586,6 @@ pub fn MapsCrosshair() -> Element {
                 left: 50vw;
                 top: 50vh;
             " }
+        }
     }
 }
