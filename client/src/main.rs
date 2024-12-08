@@ -143,7 +143,7 @@ pub async fn test_stream() -> Result<TextStream, ServerFnError> {
     let (mut tx, rx) = futures::channel::mpsc::unbounded();
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
             if let Err(_) = tx.unbounded_send(Ok("Hello, world!\n".to_string())) {
                 warn!(" test_stream() : stream close");
                 tx.close_channel();

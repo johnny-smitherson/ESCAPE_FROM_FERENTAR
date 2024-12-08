@@ -10,6 +10,7 @@ use base64::Engine;
 use dioxus::prelude::*;
 use dioxus_elements::geometry::{euclid::Size2D, WheelDelta};
 use dioxus_logger::tracing::{error, info, warn};
+use futures::stream::futures_unordered;
 use serde::{Deserialize, Serialize};
 use server_fn::error::{NoCustomError, ServerFnErrorErr};
 
@@ -43,18 +44,23 @@ fn get_tile_positions_one_level(pos: (f64, f64), zoom: f64, dimensions: (f64, f6
     ze_squarez
 }
 
-fn get_tile_positions(pos: (f64, f64), zoom: f64, dimensions: (f64, f64)) -> Vec<(i32, i32, i32)> {
+/// Computes (squares to load in memory, squares to put on screen)
+fn get_tile_positions(pos: (f64, f64), zoom: f64, dimensions: (f64, f64)) -> (Vec<(i32, i32, i32)>, Vec<(i32, i32, i32)>) {
     const IMG_AVG_PX : f64 = 512.0;
-    let mut ze_squarez = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX * 4.0);
-    let mut ze_squarez_big = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX * 2.0);
-    // info!("first grp: z={} num={}", ze_squarez[0].2, ze_squarez.len());
-    // info!("second grp: z={} num={}", ze_squarez_big[0].2, ze_squarez_big.len());
-    ze_squarez.append(&mut ze_squarez_big);
-    ze_squarez_big = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX);
-    ze_squarez.append(&mut ze_squarez_big);
-    ze_squarez.sort();
-    ze_squarez.dedup();
-    ze_squarez
+    let mut squares_bigger = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX * 2.0);
+    let mut squares_smaller = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX / 2.0);
+    let mut squares_exact = get_tile_positions_one_level(pos, zoom, dimensions, IMG_AVG_PX);
+
+    let mut squares_all = vec![];
+    squares_all.append(&mut squares_bigger);
+    squares_all.append(&mut squares_exact);
+    squares_all.sort();
+    squares_all.dedup();
+    let squares_on_screen = squares_all.clone();
+    squares_all.append(&mut squares_smaller);
+    squares_all.sort();
+    squares_all.dedup();
+    (squares_all, squares_on_screen)
 }
 
 #[component]
@@ -64,163 +70,22 @@ pub fn MapsDisplay (
     dimensions: ReadOnlySignal<(f64, f64)>,
 ) -> Element {
 
-    let squares_in_view = use_memo(move || {
+    let _square_computed = use_memo(move || {
         let sq =         get_tile_positions(*pos.read(), *zoom.read(), *dimensions.read());
         // info!("computed {:?} squares", sq.len());
         sq
     });
-    let mut loaded_tiles = use_signal(HashMap::<(i32,i32,i32),String>::new);
+    let squares_in_view = use_memo(move || {
+        _square_computed.read().0.clone()
+    });
+    let squares_on_display = use_memo(move ||{
+        _square_computed.read().1.clone()
+    });
+    let map_tile_is_loaded = use_signal(HashMap::<(i32,i32,i32),bool>::new);
+    let map_tile_data = use_signal(HashMap::<(i32,i32,i32),String>::new);
     // info!("SQUARE STORAGE: {}", square_storage.peek().len());
 
-    // vvvvvvvvvvvv
-    let cancel = use_signal(|| tokio::sync::broadcast::channel::<()>(1));
-    let cancel_ack = use_signal(|| async_channel::bounded::<()>(1));
-    // ^^^^^^^^^^^^
-
-    let mut fut = use_future(move || async move {
-        // vvvvvvvvvvvv
-        let mut cancel_rx = cancel.peek().0.subscribe();
-        let cancel_ack_tx = cancel_ack.peek().0.clone();
-        let cancel_future = cancel_rx.recv();
-        futures::pin_mut!(cancel_future);
-        // ^^^^^^^^^^^^
-        let do_stuff = async move {
-            info!("init future...");
-            let _total_count = squares_in_view.len();
-            let request_list = squares_in_view.read().iter().filter(|k| !loaded_tiles.peek().contains_key(k)).cloned().collect::<Vec<_>>();
-            let _new_conut = request_list.len();
-            if _new_conut == 0 {
-                return;
-            }
-            
-            // try read from index storage
-            info!("reading {} images from local storage...", _new_conut);
-            let mut _read_from_local = 0;
-            for k in request_list.iter().cloned() {
-                let cache_line = match read_image(k).await {
-                    Ok(cache_line) => cache_line,
-                    Err(e) => {
-                        error!("failed to read cached img from indexed db: {:#?}", e);
-                        return;
-                    }
-                };
-
-                if let Some(img) = cache_line {
-                    loaded_tiles.write().insert(k, img.img_b64);
-                    _read_from_local += 1;
-                }
-            }
-            let request_list = request_list.iter().filter(|k| !loaded_tiles.peek().contains_key(k)).cloned().collect::<Vec<_>>();
-            info!("found {} images in local storage.", _read_from_local);
-            let _new_conut = request_list.len();
-            if _new_conut == 0 {
-                return;
-            }
-            
-            info!("reading tile list started for {_new_conut} imgs new / {_total_count} total");
-            match  get_tile_list(request_list.clone()).await {
-                Ok(x) => {
-                    let mut stream = x.into_inner();
-                    use futures_util::stream::StreamExt;
-                    let mut i = 0;
-                    let mut buf = "".to_string();
-                    while let Some(Ok(chunk)) = stream.next().await {
-                        buf.push_str(&chunk);
-                        let mut lines = vec![];
-                        while let Some(newline_pos) = buf.find("\n") {
-                            lines.push(buf[..newline_pos].to_string());
-                            buf = buf[(newline_pos+1)..].to_string();
-                        }
-                        for line in lines {
-                            let fields :Vec<_> = line.splitn(5, "|").collect();
-                            // info!("FIELDS: {:?}", fields);
-                            let is_ok = fields[0] == "ok";
-                            let sq_z = fields[1].parse().unwrap_or(0);
-                            let sq_x = fields[2].parse().unwrap_or(0);
-                            let sq_y = fields[3].parse().unwrap_or(0);
-                            let body = fields[4];
-                            if is_ok {
-                                loaded_tiles.write().insert((sq_z, sq_x, sq_y), body.to_string());
-                                // async_std::task::sleep(std::time::Duration::from_millis(1)).await;
-                                if let Err(e) = write_image((sq_z, sq_x, sq_y), &body).await {
-                                    error!("failed to write downloaded image to local storage: {:#?}", e);
-                                }
-                            } else {
-                                warn!("stream err:  img z={sq_z}/x={sq_x}/y={sq_y}: {body}");
-                            }
-                            i += 1;
-                            if i == request_list.len() {
-                                info!("img stream finished all {} tiles.", i);
-                                break;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("err fetching img list from  server: {:#?}", e);
-                    return;
-                }
-            }
-        };
-        
-        let (abort_handle, abortable_future) = {
-            use futures::future::{Abortable, AbortHandle, Aborted};
-            let (abort_handle, abort_registration) = AbortHandle::new_pair();
-            let future = Abortable::new(do_stuff, abort_registration);
-            (abort_handle, future)
-        };
-        futures::pin_mut!(abortable_future);
-        match futures::future::select(abortable_future, cancel_future).await {
-            futures::future::Either::Left((_r, _f)) => {
-                info!("stream finished.");
-            },
-            futures::future::Either::Right((_r, _f)) => {
-                abort_handle.abort();
-                info!("abort() called; waiting for err");
-                assert!(_f.is_aborted());
-                let _abort_w = _f.await;
-                info!("abort() finished waiting.");
-                assert!(_abort_w.is_err());
-
-                if let Err(e) = cancel_ack_tx.send(()).await {
-                    error!("failed to send cancel ack message: {:?}", e);
-                }
-                info!("ZZZZ: cancelling stream.");
-                return;
-            },
-        }
-    });
-
-
-    let _r = use_resource(move || async move {
-        let z2 = squares_in_view.read().len();
-        if z2 > 0 {
-            if !fut.finished() {
-                if let Err(e) = cancel.peek().0.clone().send(()) {
-                    warn!("cancel failed!!! {:?}", e);
-                }
-                info!("cancel sent, waiting for resp...");
-                if let Err(e) = cancel_ack.peek().1.recv().await {
-                    warn!("cancel_ack read failed: {:?}!", e);
-                }
-                info!("cancel ack received.");
-            }
-            fut.cancel();
-
-            // clear unused keys
-            let zl = std::collections::HashSet::<(i32,i32,i32)>::from_iter(squares_in_view.peek().iter().cloned());
-            let to_delete = loaded_tiles.peek().keys().filter(|k| !zl.contains(k)).cloned().collect::<Vec<_>>();
-
-            if !to_delete.is_empty() {
-                for d in to_delete {
-                    loaded_tiles.write().remove(&d);
-                }
-            }
-
-            fut.restart();
-            info!("future restarted.");
-        }
-    });
+    _use_handle_data_loading(squares_in_view.into(), map_tile_is_loaded, map_tile_data);
 
     rsx! {
         h3 { "zoom = {zoom:?} pos = {pos:?}" }
@@ -228,13 +93,14 @@ pub fn MapsDisplay (
             id:"main_display_list",
             style:"list-style-type:none;margin:0;padding:0;",
 
-            for (sq_z, sq_x, sq_y) in squares_in_view.read().iter().cloned() {
+            for (sq_z, sq_x, sq_y) in squares_on_display.read().iter().cloned() {
                 li {
                     key: "tile_li_{sq_z}_{sq_x}_{sq_y}",
                     MapsTile {
                         zoom, pos, dimensions,
                         sq_x, sq_y, sq_z,
-                        loaded_tiles,
+                        map_tile_is_loaded,
+                        map_tile_data,
                         // src: //use_memo(move || {
                             
                         //}.into())
@@ -247,6 +113,176 @@ pub fn MapsDisplay (
     }
 }
 
+fn _use_handle_data_loading(squares_in_view: ReadOnlySignal<Vec<(i32,i32,i32)>>, mut map_tile_is_loaded: Signal<HashMap<(i32,i32,i32),bool>>, mut map_tile_data: Signal<HashMap<(i32,i32,i32),String>>,) {
+        // vvvvvvvvvvvv
+        let cancel = use_signal(|| tokio::sync::broadcast::channel::<()>(1));
+        let cancel_ack = use_signal(|| async_channel::bounded::<()>(1));
+        // ^^^^^^^^^^^^
+    
+        let mut fut = use_future(move || async move {
+            // vvvvvvvvvvvv
+            macro_rules! await_cancel {
+                ($expression:expr) => {
+                    {
+                        let _expr = $expression;
+                        let mut cancel_rx = cancel.peek().0.subscribe();
+                        let cancel_future = cancel_rx.recv();
+                        use futures::future::{Abortable, AbortHandle};
+    
+                        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+                        let _expr = Abortable::new(_expr, abort_registration);
+    
+                        futures::pin_mut!(cancel_future);
+                        futures::pin_mut!(_expr);
+                        match futures::future::select(_expr, cancel_future).await {
+                            futures::future::Either::Left((_r, _f)) => {
+                                _r.expect("aborted??!?")
+                            },
+                            futures::future::Either::Right((_r, _f)) => {
+                                abort_handle.abort();
+                                assert!(_f.is_aborted());
+                                assert!(_f.await.is_err());
+                                let cancel_ack_tx = cancel_ack.peek().0.clone();
+                                if let Err(e) = cancel_ack_tx.send(()).await {
+                                    error!("failed to send cancel ack message: {:?}", e);
+                                }
+                                info!("await_cancel(): >> {} <<: cancelling stream.", stringify!($expression));
+                                return;
+                            },
+                        }
+                    }
+                };
+            }
+            // ^^^^^^^^^^^^
+            let do_stuff = async move {
+                info!("init future...");
+                
+                // clear unused keys
+                let zl = std::collections::HashSet::<(i32,i32,i32)>::from_iter(squares_in_view.peek().iter().cloned());
+                let to_delete = map_tile_is_loaded.peek().keys().filter(|k| !zl.contains(k)).cloned().collect::<Vec<_>>();
+    
+                if !to_delete.is_empty() {
+                    for d in to_delete {
+                        map_tile_is_loaded.write().remove(&d);
+                        map_tile_data.write().remove(&d);
+                    }
+                }
+    
+                let _total_count = squares_in_view.len();
+                let request_list = squares_in_view.read().iter().filter(|k| !map_tile_is_loaded.peek().contains_key(k)).cloned().collect::<Vec<_>>();
+                let _new_conut = request_list.len();
+                if _new_conut == 0 {
+                    return;
+                }
+                
+                // try read from index storage
+                info!("reading {} images from local storage...", _new_conut);
+                let mut _read_from_local = 0;
+                use futures::stream::FuturesUnordered;
+                let mut fut_unordered = FuturesUnordered::from_iter(request_list.iter().cloned().map(move |k| async move {
+                    let cache_line = match read_image(k).await {
+                        Ok(cache_line) => cache_line,
+                        Err(e) => {
+                            error!("failed to read cached img from indexed db: {:#?}", e);
+                            return None;
+                        }
+                    };
+    
+                    if let Some(img) = cache_line {
+                        return Some((k, img.img_b64));
+                    }
+                    return None;
+                }));
+                use futures_util::StreamExt;
+                while let Some(Some((cached_k, cached_img))) = await_cancel!(fut_unordered.next()) {
+                    map_tile_data.write().insert(cached_k, cached_img);
+                    map_tile_is_loaded.write().insert(cached_k, true);
+                    _read_from_local += 1;
+                }
+                let request_list = request_list.iter().filter(|k| !map_tile_is_loaded.peek().contains_key(k)).cloned().collect::<Vec<_>>();
+                info!("found {} images in local storage.", _read_from_local);
+                let _new_conut = request_list.len();
+                if _new_conut == 0 {
+                    return;
+                }
+                
+                info!("reading tile list started for {_new_conut} imgs new / {_total_count} total");
+                let request_list_len = request_list.len();
+                match get_tile_list(request_list).await {
+                    Ok(x) => {
+                        let mut stream = x.into_inner();
+                        use futures_util::stream::StreamExt;
+                        let mut i = 0;
+                        let mut buf = "".to_string();
+                        while let Some(Ok(chunk)) = await_cancel! ( stream.next() ) {
+                            buf.push_str(&chunk);
+                            let mut lines = vec![];
+                            while let Some(newline_pos) = buf.find("\n") {
+                                lines.push(buf[..newline_pos].to_string());
+                                buf = buf[(newline_pos+1)..].to_string();
+                            }
+                            for line in lines {
+                                let fields :Vec<_> = line.splitn(5, "|").collect();
+                                // info!("FIELDS: {:?}", fields);
+                                let is_ok = fields[0] == "ok";
+                                let is_ping = fields[0] == "ping";
+                                if is_ping {
+                                    info!("pong");
+                                    continue;
+                                }
+                                let sq_z = fields[1].parse().unwrap_or(0);
+                                let sq_x = fields[2].parse().unwrap_or(0);
+                                let sq_y = fields[3].parse().unwrap_or(0);
+                                let body = fields[4];
+                                if is_ok {
+                                    map_tile_data.write().insert((sq_z, sq_x, sq_y), body.to_string());
+                                    map_tile_is_loaded.write().insert((sq_z, sq_x, sq_y), true);
+                                    // async_std::task::sleep(std::time::Duration::from_millis(1)).await;
+                                    if let Err(e) = await_cancel! ( write_image((sq_z, sq_x, sq_y), &body) ) {
+                                        error!("failed to write downloaded image to local storage: {:#?}", e);
+                                    }
+                                } else {
+                                    warn!("stream err:  img z={sq_z}/x={sq_x}/y={sq_y}: \n{body}");
+                                }
+                                i += 1;
+                                if i == request_list_len {
+                                    info!("img stream finished all {} tiles.", i);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("err fetching img list from  server: {:#?}", e);
+                        return;
+                    }
+                }
+            };
+            
+            do_stuff.await
+        });
+    
+    
+        let _r = use_resource(move || async move {
+            let z2 = squares_in_view.read().len();
+            if z2 > 0 {
+                if !fut.finished() {
+                    if let Err(e) = cancel.peek().0.clone().send(()) {
+                        warn!("cancel failed!!! {:?}", e);
+                    }
+                    info!("cancel sent, waiting for resp...");
+                    if let Err(e) = cancel_ack.peek().1.recv().await {
+                        warn!("cancel_ack read failed: {:?}!", e);
+                    }
+                    info!("cancel ack received.");
+                }
+                fut.cancel();
+                fut.restart();
+                info!("future restarted.");
+            }
+        });
+        _r.read();
+}
 
 #[component]
 fn MapsTile (
@@ -255,7 +291,8 @@ fn MapsTile (
     dimensions: ReadOnlySignal<(f64, f64)>,
     sq_x: i32, sq_y: i32, sq_z: i32,
     // src: ReadOnlySignal<String>,
-    loaded_tiles: ReadOnlySignal<HashMap::<(i32,i32,i32),String>>,
+    map_tile_is_loaded: ReadOnlySignal<HashMap::<(i32,i32,i32),bool>>,
+    map_tile_data: ReadOnlySignal<HashMap::<(i32,i32,i32),String>>,
 ) -> Element {
     let tile_size_abs = f64::exp2(REF_Z - sq_z as f64);
     let tile_pos_abs = (sq_x as f64 * tile_size_abs , sq_y as f64 * tile_size_abs );
@@ -270,22 +307,40 @@ fn MapsTile (
     );
     let tile_size = tile_size_abs / camera_zoom;
 
-    let src = use_memo(move || loaded_tiles.read().get(&(sq_z, sq_x, sq_y)).cloned().unwrap_or("".to_string()));
+    let is_loaded = use_memo(move || {
+        if let Some(x) = map_tile_is_loaded.read().get(&(sq_z, sq_x, sq_y)) {
+            *x
+        } else {
+            false
+        }
+    });
+    let src = use_memo(move || {
+        if *is_loaded.read() {
+            map_tile_data.peek().get(&(sq_z, sq_x, sq_y)).cloned().unwrap_or("".to_string())
+        } else {
+            "".to_string()
+        }
+    });
 
     rsx! {
-        img { 
-            id: "tile_img_{sq_z}_{sq_x}_{sq_y}",
-            style: "
-                width: {tile_size*50.0}vmin;
-                height: {tile_size*50.0}vmin; 
-                position: absolute; 
-                left: calc({tile_camera.0*50.0}vmin + 50vw);
-                top: calc({tile_camera.1*50.0}vmin + 50vh); 
-                background-color: transparent;
-            ", 
-            src: src,
-            // src: "https://mt1.google.com/vt/lyrs=y&x={sq_x}&y={sq_y}&z={sq_z}"
+        if *is_loaded.read() {
+            img { 
+                id: "tile_img_{sq_z}_{sq_x}_{sq_y}",
+                style: "
+                    width: {tile_size*50.0}vmin;
+                    height: {tile_size*50.0}vmin; 
+                    position: absolute; 
+                    left: calc({tile_camera.0*50.0}vmin + 50vw);
+                    top: calc({tile_camera.1*50.0}vmin + 50vh); 
+                    background-color: transparent;
+                ", 
+                src: src,
+                // src: "https://mt1.google.com/vt/lyrs=y&x={sq_x}&y={sq_y}&z={sq_z}"
+            }
+        } else {
+
         }
+
     }
 }
 
@@ -295,8 +350,41 @@ use server_fn::codec::TextStream;
 
 #[server(output = StreamingText)]
 async fn get_tile_list(list: Vec<(i32,i32,i32)>) -> Result<TextStream, ServerFnError> {
-    let (mut tx, rx) = async_channel::bounded(1);
+    let (tx, rx) = async_channel::bounded(1);
+    const PINGPONG_INTERVAL: f32 = 1.0;
+    const SEND_TIMEOUT: f32 = 5.0;
+
+    // let (mut tx, rx) = futures::channel::mpsc::unbounded();
     tokio::spawn(async move {
+        let send_msg = move |msg| {
+            let mut tx2 = tx.clone();
+            async move {
+                if tx2.is_closed() {
+                    anyhow::bail!("already closed.");
+                }
+                match tokio::time::timeout(tokio::time::Duration::from_secs_f32(SEND_TIMEOUT), tx2.send(Ok(msg))).await {
+                    Err(e) => {
+                        tx2.close();
+                        anyhow::bail!("timeout: {e}");
+                    }
+                    Ok(Err(e)) => {
+                        tx2.close();
+                        anyhow::bail!("send err: {e}");
+                    }
+                    Ok(Ok(r)) => {
+                        return Ok(());
+                    }
+                }
+            }
+        }; 
+        
+        let ping_str = "ping|{}|{}|{}|pong\n";
+
+        if let Err(e) = send_msg(ping_str.to_string()).await {
+            warn!("fail to send first ping: {e}");
+            return;
+        }
+
         use futures::stream::FuturesUnordered;
         let list_len = list.len();
         info!("server: feteching {} img", list_len);
@@ -305,29 +393,39 @@ async fn get_tile_list(list: Vec<(i32,i32,i32)>) -> Result<TextStream, ServerFnE
 
         let mut success_count = 0;
         let mut err_count = 0;
-        while let Some((coord, result)) = fut_unordered.next().await {
-            let msg = match result {
-                Ok(result) => {
-                    success_count += 1;
-                    format!("ok|{}|{}|{}|{}\n", coord.0, coord.1, coord.2, result)
-
-                },
-                Err(err) => {
-                    err_count += 1;
-                    let err = format!("{:?}", err).as_str()[0..10].to_string();
-                    format!("err|{}|{}|{}|{}\n", coord.0, coord.1, coord.2, err)
+        loop {
+            let msg = match tokio::time::timeout(tokio::time::Duration::from_secs_f32(PINGPONG_INTERVAL), fut_unordered.next()).await {
+                Err(_timeout) => {
+                    // no new traffic - send ping
+                    info!("sending ping...");
+                    ping_str.to_string()
+                }
+                Ok(None) => {
+                    // no new futures - stop streaming
+                    info!("done streaming {} img: {} success  / {} fail.", list_len, success_count, err_count);
+                    return;
+                }
+                Ok(Some((coord, result))) => {
+                    match result {
+                        Ok(result) => {
+                            success_count += 1;
+                            format!("ok|{}|{}|{}|{}\n", coord.0, coord.1, coord.2, result)
+        
+                        },
+                        Err(err) => {
+                            err_count += 1;
+                            let err = format!("{:?}", err).as_str()[0..10].to_string();
+                            format!("err|{}|{}|{}|{}\n", coord.0, coord.1, coord.2, err)
+                        }
+                    }
                 }
             };
-            
-            let _x = tx.send(Ok(msg)).await;
-            if let Err(err) = _x {
-                warn!("cut streaming {} img / {} planned: {:?}",  success_count+err_count, list_len, err);
-                tx.close();
+            if let Err(e) = send_msg(msg).await {
+                warn!("cut streaming {} img / {} planned: {}",  success_count+err_count, list_len, e);
                 return;
-            }
-            
+            }   
         }
-        info!("done streaming {} img: {} success  / {} fail.", list_len, success_count, err_count);
+        info!("stream done.");
     });
 
     Ok(TextStream::new(rx))
@@ -339,6 +437,7 @@ async fn get_server_tile_img(coord: (i32,i32,i32)) -> ((i32,i32,i32), Result<Str
         match get_server_tile_img_once(coord).await {
             Ok(r) => {return (coord, Ok(r));},
             Err(r) => {
+                info!("ERR: {:#?}", r);
                 if x == RETRIES {
                     return (coord, Err(r));
                 }
@@ -354,13 +453,19 @@ async fn get_server_tile_img(coord: (i32,i32,i32)) -> ((i32,i32,i32), Result<Str
 
 async fn get_server_tile_img_once(coord: (i32,i32,i32)) -> Result<String, ServerFnError> {
     let (sq_z, sq_x, sq_y) = coord;
-    let url = format!("http://localhost:8000/api/tile/google_hybrid/{sq_z}/{sq_x}/{sq_y}/jpg");
+    // let url = format!("http://localhost:8000/api/tile/google_hybrid/{sq_z}/{sq_x}/{sq_y}/jpg");
+    // let url = format!("https://tile.openstreetmap.org/{sq_z}/{sq_x}/{sq_y}.png");
+    let url = format!("https://mt1.google.com/vt/lyrs=y&x={sq_x}&y={sq_y}&z={sq_z}");
 
-    let response = reqwest::get(&url).await?;
+    let client = reqwest::Client::builder()
+    .user_agent("Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:133.0) Gecko/20100101 Firefox/133.0")
+    .build()?;
+
+    let response = client.get(&url).send().await?;
     let status_code = response.status().clone();
-    let content_type = response.headers()["Content-Type"].to_str()?.to_string();
+    let content_type = response.headers().get("Content-Type").map(|x| x.to_str().unwrap_or("image/png")).unwrap_or("image/png").to_string();
     if !status_code.is_success() ||  content_type.len() < 4 {
-        return Err(ServerFnError::new(format!("bad response from tile server: {:?}", status_code)));
+        return Err(ServerFnError::new(format!("bad response from tile server: {:?}, url:{:?} err: {:?}", status_code, url,  response.text().await)));
     }
     
     let resp_bytes = response.bytes().await?;

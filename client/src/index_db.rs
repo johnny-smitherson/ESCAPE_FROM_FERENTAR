@@ -50,7 +50,7 @@ pub async fn write_image(key: (i32, i32, i32), val: &str) -> anyhow::Result<()> 
 
 async fn _do_init_db() ->  Result<Database, String> {
     info!("_do_init_db(): starting...");
-    let db = Database::open("image_db3")
+    let db = Database::open("image_db4")
         .with_version(1u8)
         .with_on_upgrade_needed(|event, db| {
             match (event.old_version(), event.new_version()) {
