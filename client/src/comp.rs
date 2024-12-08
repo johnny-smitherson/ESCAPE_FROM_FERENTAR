@@ -1,9 +1,8 @@
-use std::collections::HashMap;
+use crate::_const::REF_Z;
 #[allow(non_snake_case)]
-
 use dioxus::prelude::*;
 use dioxus_logger::tracing::info;
-use crate::_const::REF_Z;
+use std::collections::HashMap;
 
 #[component]
 pub fn MapsDisplay(
@@ -11,16 +10,21 @@ pub fn MapsDisplay(
     pos: ReadOnlySignal<(f64, f64)>,
     dimensions: ReadOnlySignal<(f64, f64)>,
 ) -> Element {
-    let squares_in_view = use_memo(move || crate::geometry::get_tile_positions(*pos.read(), *zoom.read(), *dimensions.read()));
+    let squares_in_view = use_memo(move || {
+        crate::geometry::get_tile_positions(*pos.read(), *zoom.read(), *dimensions.read())
+    });
     let map_tile_is_loaded = use_signal(HashMap::<(i32, i32, i32), bool>::new);
     let map_tile_data = use_signal(HashMap::<(i32, i32, i32), String>::new);
 
-
-    crate::data_loader::_use_handle_data_loading(squares_in_view.into(), map_tile_is_loaded, map_tile_data);
+    crate::data_loader::_use_handle_data_loading(
+        squares_in_view.into(),
+        map_tile_is_loaded,
+        map_tile_data,
+    );
 
     rsx! {
         MapsCrosshair {}
-        h3 { "zoom = {zoom:?} pos = {pos:?}" },
+        h3 { "zoom = {zoom:?} pos = {pos:?}" }
 
         ul {
             id: "main_display_list",
@@ -43,7 +47,6 @@ pub fn MapsDisplay(
         }
     }
 }
-
 
 #[component]
 fn MapsTile(
@@ -104,7 +107,6 @@ fn MapsTile(
     }
 }
 
-
 #[component]
 pub fn MapsCrosshair() -> Element {
     rsx! {
@@ -120,8 +122,8 @@ pub fn MapsCrosshair() -> Element {
                 position: absolute;
                 left: 50vw;
                 top: 50vh;
-            " },
-        div { style: "
+            " }
+            div { style: "
                 z-index: 0;
                 background-color: #FFF;
                 mix-blend-mode: difference;

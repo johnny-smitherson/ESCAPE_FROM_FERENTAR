@@ -39,7 +39,6 @@ enum Route {
     },
 }
 
-
 #[component]
 fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
     // The initial state of the state comes from the url hash
@@ -109,7 +108,6 @@ fn Home(url_hash: ReadOnlySignal<MapState>) -> Element {
             state.write().pos = *pos.read();
         }
     });
-    
 
     rsx! {
         MapsController { zoom, pos, dimensions }

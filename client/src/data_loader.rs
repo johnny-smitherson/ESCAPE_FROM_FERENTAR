@@ -3,8 +3,8 @@ use dioxus_logger::tracing::{error, info, warn};
 
 use std::collections::HashMap;
 
-use base64::Engine;
 use crate::index_db::{read_image, write_image};
+use base64::Engine;
 
 pub(crate) fn _use_handle_data_loading(
     squares_to_load: ReadOnlySignal<Vec<(i32, i32, i32)>>,
@@ -21,9 +21,7 @@ pub(crate) fn _use_handle_data_loading(
         let _ = squares_to_load.read();
         debounce_update_squares.action(());
     });
-    let squares_in_view = use_memo(move || {
-        squares_in_view.read().clone()
-    });
+    let squares_in_view = use_memo(move || squares_in_view.read().clone());
 
     // vvvvvvvvvvvv
     let cancel = use_signal(|| tokio::sync::broadcast::channel::<()>(1));
@@ -62,7 +60,7 @@ pub(crate) fn _use_handle_data_loading(
     }
     // ^^^^^^^^^^^^
     // ^^^^^^^^^^^^
-    
+
     let mut clear_unused_keys = move || {
         let total_item_count = squares_in_view.peek().len();
         if total_item_count < 500 {
@@ -90,17 +88,15 @@ pub(crate) fn _use_handle_data_loading(
             info!("cleared {_count} unused keys / {total_item_count} total");
         }
     };
-    
+
     let filter_loaded_keys = move |list: &Vec<_>| {
-        list
-        .iter()
-        .filter(|k| !map_tile_is_loaded.peek().contains_key(k))
-        .cloned()
-        .collect::<Vec<_>>()
+        list.iter()
+            .filter(|k| !map_tile_is_loaded.peek().contains_key(k))
+            .cloned()
+            .collect::<Vec<_>>()
     };
 
     let mut fut = use_future(move || async move {
-
         let do_stuff = async move {
             let _total_count = squares_in_view.len();
             let request_list = filter_loaded_keys(squares_in_view.read().as_ref());
@@ -115,7 +111,7 @@ pub(crate) fn _use_handle_data_loading(
             // use futures::stream::FuturesUnordered;
             // pop is slow
             for k in request_list.iter().cloned() {
-                let cache_line = match  read_image(k) .await {
+                let cache_line = match read_image(k).await {
                     Ok(cache_line) => cache_line,
                     Err(e) => {
                         error!("failed to read cached img from indexed db: {:#?}", e);
@@ -171,9 +167,7 @@ pub(crate) fn _use_handle_data_loading(
                                     .insert((sq_z, sq_x, sq_y), body.to_string());
                                 map_tile_is_loaded.write().insert((sq_z, sq_x, sq_y), true);
                                 // async_std::task::sleep(std::time::Duration::from_millis(1)).await;
-                                if let Err(e) =
-                                    write_image((sq_z, sq_x, sq_y), &body).await
-                                {
+                                if let Err(e) = write_image((sq_z, sq_x, sq_y), &body).await {
                                     error!(
                                         "failed to write downloaded image to local storage: {:#?}",
                                         e
@@ -221,7 +215,6 @@ pub(crate) fn _use_handle_data_loading(
     });
     _r.read();
 }
-
 
 // #[server(GetServerTile)]
 use server_fn::codec::StreamingText;
@@ -326,8 +319,7 @@ async fn get_tile_list(list: Vec<(i32, i32, i32)>) -> Result<TextStream, ServerF
     Ok(TextStream::new(rx))
 }
 
-
-#[cfg(feature="server")]
+#[cfg(feature = "server")]
 async fn get_server_tile_img(
     coord: (i32, i32, i32),
 ) -> ((i32, i32, i32), Result<String, ServerFnError>) {
@@ -340,7 +332,7 @@ async fn get_server_tile_img(
             Err(r) => {
                 info!("ERR {x}/{RETRIES}: {:#?}", r);
                 if x == RETRIES {
-                    return (coord, Err(ServerFnError::new( format!("{r}" ))));
+                    return (coord, Err(ServerFnError::new(format!("{r}"))));
                 }
                 let sleep_ms = x as u64 * 250 * 2_u64.pow(x);
                 // info!("failed to get tile img; chance {x}/{RETRIES}; sleep {sleep_ms}ms");
@@ -352,7 +344,7 @@ async fn get_server_tile_img(
     unreachable!();
 }
 
-#[cfg(feature="server")]
+#[cfg(feature = "server")]
 async fn get_server_tile_img_once(coord: (i32, i32, i32)) -> anyhow::Result<String> {
     let (sq_z, sq_x, sq_y) = coord;
     // let url = format!("http://localhost:8000/api/tile/google_hybrid/{sq_z}/{sq_x}/{sq_y}/jpg");

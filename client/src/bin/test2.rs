@@ -1,9 +1,8 @@
-
 use dioxus::prelude::*;
 use dioxus_logger::tracing::info;
 
 fn main() {
-   dioxus::launch(MapsCrosshair);
+    dioxus::launch(MapsCrosshair);
 }
 
 #[component]
@@ -22,8 +21,8 @@ pub fn MapsCrosshair() -> Element {
                 position: absolute;
                 left: 50vw;
                 top: 50vh;
-            " },
-        div { style: "
+            " }
+            div { style: "
                 z-index: 0;
                 background-color: #FFF;
                 mix-blend-mode: difference;

@@ -1,4 +1,3 @@
-
 use crate::_const::{MAX_Z, MIN_Z, REF_Z};
 
 fn get_tile_positions_one_level(
@@ -19,8 +18,10 @@ fn get_tile_positions_one_level(
 
     let mut ze_squarez = vec![];
     let tile_diff_exp = f64::exp(f64::fract(f64::log2(min_dim_tiles) + zoom));
-    let tile_count_x = (dimensions.0 / vmin_px / tile_diff_exp * min_dim_tiles + 1.1).ceil() as i32 + 1;
-    let tile_count_y = (dimensions.1 / vmin_px / tile_diff_exp * min_dim_tiles + 1.1).ceil() as i32 + 1;
+    let tile_count_x =
+        (dimensions.0 / vmin_px / tile_diff_exp * min_dim_tiles + 1.1).ceil() as i32 + 1;
+    let tile_count_y =
+        (dimensions.1 / vmin_px / tile_diff_exp * min_dim_tiles + 1.1).ceil() as i32 + 1;
     for i in (x0 - tile_count_x)..=(x0 + tile_count_x) {
         for j in (y0 - tile_count_y)..=(y0 + tile_count_y) {
             ze_squarez.push((
@@ -43,7 +44,7 @@ pub(crate) fn get_tile_positions(
     if zoom < MIN_Z as f64 - 0.0001 {
         return vec![];
     }
-    const IMG_MAX_PX: f64 = 256.0+128.0;
+    const IMG_MAX_PX: f64 = 256.0 + 128.0;
     let mut current_px = IMG_MAX_PX;
     let mut all_sq = vec![];
     for _ in 0..5 {

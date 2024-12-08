@@ -1,4 +1,3 @@
-
 use client::index_db::init_db_globals;
 use client::url_state::{MapState, INIT_STATE};
 #[allow(non_snake_case)]
@@ -19,7 +18,6 @@ fn main() {
     });
 }
 
-
 #[derive(Routable, Clone, Debug, PartialEq)]
 #[rustfmt::skip]
 enum Route {
@@ -28,8 +26,6 @@ enum Route {
     #[route("/storage")]
     Storage{}
 }
-
-
 
 #[component]
 fn Storage() -> Element {
@@ -115,7 +111,6 @@ fn Hello() -> Element {
                 if let Err(e) = cancel_ack.peek().1.recv().await {
                     warn!("cancel_ack read failed: {:?}!", e);
                 }
-                // info!("cancel ack received.");
                 fut.cancel();
                 fut.restart();
                 info!("future restarted.");
