@@ -2,12 +2,11 @@
 use dioxus::prelude::*;
 use dioxus_elements::geometry::WheelDelta;
 
-use crate::_const::{MAX_Z, MIN_Z};
+use crate::{_const::{MAX_Z, MIN_Z}, url_state::MapState};
 
 #[component]
 pub fn MapsController(
-    mut zoom: Signal<f64>,
-    mut pos: Signal<(f64, f64)>,
+    mut map_state: Signal<MapState>,
     mut dimensions: Signal<(f64, f64)>,
 ) -> Element {
     #[derive(Copy, Clone, Debug)]
@@ -43,9 +42,9 @@ pub fn MapsController(
             );
             if diff.0.abs() + diff.1.abs() > 0.00001 {
                 // warn!("MOVEMENT DIFF = {diff:?}");
-                let old_pos = *pos.peek();
-                let exp = f64::exp2(crate::_const::REF_Z - *zoom.peek());
-                *pos.write() = (old_pos.0 - diff.0 * exp, old_pos.1 - diff.1 * exp)
+                let old_pos = map_state.peek().pos;
+                let exp = f64::exp2(crate::_const::REF_Z - map_state.peek().zoom);
+                map_state.write().pos = (old_pos.0 - diff.0 * exp, old_pos.1 - diff.1 * exp);
             }
         }
 
@@ -84,8 +83,8 @@ pub fn MapsController(
         let diff = -diff_wheel + diff_pinch;
         if diff.abs() > 0.00001 {
             // warn!("ZOOM = {diff}");
-            let _old_zoom_sig = *zoom.peek();
-            *zoom.write() = (_old_zoom_sig + diff).clamp(MIN_Z as f64, MAX_Z as f64);
+            let _old_zoom_sig = map_state.peek().zoom;
+            map_state.write().zoom = (_old_zoom_sig + diff).clamp(MIN_Z as f64, MAX_Z as f64);
         }
 
         if last != current {

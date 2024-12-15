@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::index_db::{read_image, write_image};
 use base64::Engine;
 
-pub(crate) fn _use_handle_data_loading(
+pub(crate) fn use_handle_data_loading(
     squares_to_load: ReadOnlySignal<Vec<(i32, i32, i32)>>,
     mut map_tile_is_loaded: Signal<HashMap<(i32, i32, i32), bool>>,
     mut map_tile_data: Signal<HashMap<(i32, i32, i32), String>>,

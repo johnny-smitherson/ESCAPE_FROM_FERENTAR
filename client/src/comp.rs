@@ -1,4 +1,4 @@
-use crate::_const::REF_Z;
+use crate::{_const::REF_Z, url_state::MapState};
 #[allow(non_snake_case)]
 use dioxus::prelude::*;
 use dioxus_logger::tracing::info;
@@ -6,17 +6,16 @@ use std::collections::HashMap;
 
 #[component]
 pub fn MapsDisplay(
-    zoom: ReadOnlySignal<f64>,
-    pos: ReadOnlySignal<(f64, f64)>,
+    map_state: ReadOnlySignal<MapState>,
     dimensions: ReadOnlySignal<(f64, f64)>,
 ) -> Element {
     let squares_in_view = use_memo(move || {
-        crate::geometry::get_tile_positions(*pos.read(), *zoom.read(), *dimensions.read())
+        crate::geometry::get_tile_positions(map_state.read().pos, map_state.read().zoom, *dimensions.read())
     });
     let map_tile_is_loaded = use_signal(HashMap::<(i32, i32, i32), bool>::new);
     let map_tile_data = use_signal(HashMap::<(i32, i32, i32), String>::new);
 
-    crate::data_loader::_use_handle_data_loading(
+    crate::data_loader::use_handle_data_loading(
         squares_in_view.into(),
         map_tile_is_loaded,
         map_tile_data,
@@ -24,7 +23,7 @@ pub fn MapsDisplay(
 
     rsx! {
         MapsCrosshair {}
-        h3 { "zoom = {zoom:?} pos = {pos:?}" }
+        MapsInterface {map_state},
 
         ul {
             id: "main_display_list",
@@ -33,8 +32,7 @@ pub fn MapsDisplay(
             for (sq_z , sq_x , sq_y) in squares_in_view.read().iter().cloned() {
                 li { key: "tile_li_{sq_z}_{sq_x}_{sq_y}",
                     MapsTile {
-                        zoom,
-                        pos,
+                        map_state,
                         dimensions,
                         sq_x,
                         sq_y,
@@ -49,9 +47,29 @@ pub fn MapsDisplay(
 }
 
 #[component]
+fn MapsInterface(map_state: ReadOnlySignal<MapState>) -> Element {
+    rsx! {
+        div {
+            style: "
+                position: absolute; 
+                left: 2vmin; 
+                top: 2vh;
+                width: 20vmin; 
+                height: 92vh;
+                background-color: white;
+                z-index: 0;
+                padding: 1vmin;
+                margin: 1vmin;
+            ",
+            
+            h3 { "zoom = {map_state.read().zoom:?} pos = {map_state.read().pos:?}" }
+        }
+    }
+}
+
+#[component]
 fn MapsTile(
-    zoom: ReadOnlySignal<f64>,
-    pos: ReadOnlySignal<(f64, f64)>,
+    map_state: ReadOnlySignal<MapState>,
     dimensions: ReadOnlySignal<(f64, f64)>,
     sq_x: i32,
     sq_y: i32,
@@ -60,10 +78,12 @@ fn MapsTile(
     map_tile_is_loaded: ReadOnlySignal<HashMap<(i32, i32, i32), bool>>,
     map_tile_data: ReadOnlySignal<HashMap<(i32, i32, i32), String>>,
 ) -> Element {
+    let pos = map_state.read().pos;
+    let zoom = map_state.read().zoom;
     let tile_size_abs = f64::exp2(REF_Z - sq_z as f64);
     let tile_pos_abs = (sq_x as f64 * tile_size_abs, sq_y as f64 * tile_size_abs);
-    let tile_relative = (tile_pos_abs.0 - pos.read().0, tile_pos_abs.1 - pos.read().1);
-    let camera_zoom = f64::exp2(REF_Z - *zoom.read());
+    let tile_relative = (tile_pos_abs.0 - pos.0, tile_pos_abs.1 - pos.1);
+    let camera_zoom = f64::exp2(REF_Z - zoom);
     let tile_camera = (tile_relative.0 / camera_zoom, tile_relative.1 / camera_zoom);
     let tile_size = tile_size_abs / camera_zoom;
     let z_index = sq_z - 32;
@@ -111,7 +131,8 @@ fn MapsTile(
 pub fn MapsCrosshair() -> Element {
     rsx! {
         div {
-            div { style: "
+            id: "maps_crosshairs",
+            div { id: "maps_crosshair_1", style: "
                 z-index: 0;
                 background-color: #FFF;
                 mix-blend-mode: difference;
@@ -123,7 +144,7 @@ pub fn MapsCrosshair() -> Element {
                 left: 50vw;
                 top: 50vh;
             " }
-            div { style: "
+            div { id: "maps_crosshair_2", style: "
                 z-index: 0;
                 background-color: #FFF;
                 mix-blend-mode: difference;
